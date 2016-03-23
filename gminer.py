@@ -1,3 +1,6 @@
+"""
+Module for information retrieval from GitHub API.
+"""
 from github import Github
 import re
 import sys
@@ -94,13 +97,16 @@ def store_repository_commits(repository):
     repository_name = repository.name
     print "Getting commits from GitHub from repository " + repository_name
 
+    commit_list = []
+    index = 0
+
     try:
         commits = repository.get_commits()
-        commit_list = []
+
         buffer_size = 500
         for index, commit in enumerate(commits):
             if len(gdata.get_commit_by_url(commit.url)) > 0:
-                print "Index " , index,  ": Commit already stored: ", commit.url
+                print "Index ", index, ": Commit already stored: ", commit.url
                 continue
 
             commit_as_tuple = from_commit_to_tuple(repository_name, commit)
@@ -171,7 +177,7 @@ def main():
     # store_commits_per_tag(repository)
     # store_commits_between_tags(repository)
 
-    # store_repository_commits(repository)
+    store_repository_commits(repository)
 
 
 if __name__ == "__main__":

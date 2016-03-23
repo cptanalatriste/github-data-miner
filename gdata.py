@@ -3,6 +3,7 @@ Handles the storage of Github information on a database
 """
 
 import sqlite3
+import dbutils
 
 DATABASE_FILE = "github.sqlite"
 TAG_DDL = "CREATE TABLE release_tag " \
@@ -82,7 +83,27 @@ def get_tags_and_dates(repository_name):
     tags_query = "SELECT t.name, c.commit_author_date " \
                  "FROM github_commit c, release_tag t " \
                  "where t.commit_url = c.url and t.repository=?"
-    return execute_query(tags_query, (repository_name,))
+    return dbutils.execute_query(tags_query, (repository_name,), DATABASE_FILE)
+
+
+def get_compares_by_commit(commit_url):
+    """
+    Returns all the compares involved on a commit
+    :param commit_url: Commit URL
+    :return: List of compare information.
+    """
+    compare_sql = "SELECT * from git_compare where commit_url=?"
+    return dbutils.execute_query(compare_sql, (commit_url,), DATABASE_FILE)
+
+
+def get_commits_by_repository(repository_name):
+    """
+    Returns commit information for a specific repository.
+    :param repository_name: Repository name.
+    :return: List of commits.
+    """
+    commit_sql = "SELECT * FROM github_commit WHERE repository=?"
+    return dbutils.execute_query(commit_sql, (repository_name,), DATABASE_FILE)
 
 
 def get_commit_by_url(commit_url):
@@ -92,24 +113,23 @@ def get_commit_by_url(commit_url):
     :return: List of commits
     """
     commit_sql = "SELECT * FROM github_commit WHERE url=?"
-    return execute_query(commit_sql, (commit_url,))
+    return dbutils.execute_query(commit_sql, (commit_url,), DATABASE_FILE)
 
 
-def execute_query(sql_query, parameters):
+def get_commit_by_timerange(start, end):
     """
-    Executes a query on the database
-    :param sql_query: SQL Query
-    :param parameters: Parameters for the query
-    :return: Query results as a List
+    Returns the list of commits in a time range
+    :param start: Initial date as a string
+    :param end: Final date as a string
+    :return: List of commits.
     """
-    connection = sqlite3.connect(DATABASE_FILE)
-    cursor = connection.cursor()
+    commit_sql = "SELECT c.* FROM github_commit c WHERE " \
+                 "substr(c.commit_committer_date, 0, 5) || substr(c.commit_committer_date, 6, 2) || substr(c.commit_committer_date, 9, 2) || " \
+                 "substr(c.commit_committer_date, 12, 2) || substr(c.commit_committer_date, 15, 2) || substr(c.commit_committer_date, 18, 2) " \
+                 "between ? and ?"
+    print "commit_sql ", commit_sql
 
-    cursor.execute(sql_query, parameters)
-    results = cursor.fetchall()
-    connection.close()
-
-    return results
+    return dbutils.execute_query(commit_sql, (start, end), DATABASE_FILE)
 
 
 def get_repository_tags(repository_name):
@@ -119,7 +139,7 @@ def get_repository_tags(repository_name):
     :return: List of tags
     """
     tags_query = "SELECT * FROM release_tag where repository=?"
-    return execute_query(tags_query, (repository_name,))
+    return dbutils.execute_query(tags_query, (repository_name,), DATABASE_FILE)
 
 
 def create_schema():
