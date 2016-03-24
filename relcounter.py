@@ -91,7 +91,7 @@ def consolidate_information(project_id):
 
     with open("Release_Counter_" + project_id + ".csv", "wb") as release_file:
         csv_writer = csv.writer(release_file)
-        csv_writer.writerow("Issue Key", "Earliest Version", "Latest Version", "Commits", "Tags", "Earliest Tag")
+        csv_writer.writerow(("Issue Key", "Earliest Version", "Latest Version", "Commits", "Tags", "Earliest Tag"))
         for record in records:
             csv_writer.writerow(record)
 
