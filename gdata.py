@@ -23,23 +23,6 @@ TABLE_LIST = [TAG_DDL,
               COMPARE_DDL]
 
 
-def load_list(sql_insert, row_list):
-    """
-    Inserts a list of items into the database.
-    :param sql_insert: SQL for inserting a row.
-    :param row_list: List containing tuples with tag information.
-    :return: None.
-    """
-    connection = sqlite3.connect(DATABASE_FILE)
-    cursor = connection.cursor()
-
-    for row in row_list:
-        cursor.execute(sql_insert, row)
-
-    connection.commit()
-    connection.close()
-
-
 def load_compares(compare_list):
     """
     Inserts a list of comparisons into the database
@@ -48,7 +31,7 @@ def load_compares(compare_list):
     """
     compare_insert = "INSERT INTO git_compare VALUES" \
                      " (?, ?, ?, ?)"
-    load_list(compare_insert, compare_list)
+    dbutils.load_list(compare_insert, compare_list, DATABASE_FILE)
 
 
 def load_tags(tag_list):
@@ -60,7 +43,7 @@ def load_tags(tag_list):
 
     tag_insert = "INSERT INTO release_tag VALUES" \
                  " (?, ?, ?, ?, ?, ?)"
-    load_list(tag_insert, tag_list)
+    dbutils.load_list(tag_insert, tag_list, DATABASE_FILE)
 
 
 def load_commits(commit_list):
@@ -71,7 +54,7 @@ def load_commits(commit_list):
     """
     commit_insert = "INSERT OR REPLACE INTO github_commit VALUES " \
                     "(?, ? ,? ,? ,? ,? ,? ,? ,? ,? ,? ,? ,? ,? ,? ,? ,? ,?)"
-    load_list(commit_insert, commit_list)
+    dbutils.load_list(commit_insert, commit_list, DATABASE_FILE)
 
 
 def get_tags_and_dates(repository_name):
@@ -142,23 +125,5 @@ def get_repository_tags(repository_name):
     return dbutils.execute_query(tags_query, (repository_name,), DATABASE_FILE)
 
 
-def create_schema():
-    """
-    Creates the SQLite tables
-    :return: None
-    """
-    print "Starting schema creation ..."
-    connection = sqlite3.connect(DATABASE_FILE)
-    cursor = connection.cursor()
-
-    for table_ddl in TABLE_LIST:
-        cursor.execute(table_ddl)
-
-    connection.commit()
-    connection.close()
-
-    print "Schema creation finished"
-
-
 if __name__ == "__main__":
-    create_schema()
+    dbutils.create_schema(TABLE_LIST, DATABASE_FILE)
