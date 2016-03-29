@@ -4,16 +4,10 @@ Module for the calculation of the releases to fix field.
 import re
 import csv
 import git
-import dbutils
+import gjdata
 import jdata
 import gminer
 
-COMMITS_DDL = "CREATE TABLE issue_commit " \
-              "(project_id TEXT, issue_key TEXT, commit_sha TEXT," \
-              " PRIMARY KEY(project_id, commit_sha, issue_key))"
-TAGS_DDL = "CREATE TABLE commit_tag (project_id TEXT, commit_sha TEXT, tag_name TEXT," \
-           " PRIMARY KEY(project_id, commit_sha, tag_name))"
-DATABASE_FILE = "jira_github.sqlite"
 WORD_BOUNDARY = r'\b'
 PATTERN_OPTION = "--grep="
 ALL_BRANCHES_OPTION = "--all"
@@ -31,39 +25,8 @@ STATUS_INDEX = 35
 PRIORNAME_INDEX = 36
 
 
-def create_schema():
-    dbutils.create_schema([COMMITS_DDL,
-                           TAGS_DDL], DATABASE_FILE)
-
-
-def get_commits_by_issue(project_id, key):
-    commit_sql = "SELECT * FROM issue_commit WHERE project_id=? AND issue_key=?"
-    return dbutils.execute_query(commit_sql, (project_id, key), DATABASE_FILE)
-
-
-def get_tags_by_commit_sha(project_id, commit_sha):
-    tag_sql = "SELECT * FROM commit_tag WHERE project_id=? AND commit_sha=?"
-    return dbutils.execute_query(tag_sql, (project_id, commit_sha), DATABASE_FILE)
-
-
-def insert_commits_per_issue(db_records):
-    insert_commit = "INSERT INTO issue_commit VALUES (?, ?, ?)"
-    dbutils.load_list(insert_commit, db_records, DATABASE_FILE)
-
-
-def get_commits_per_project(project_id):
-    commits_sql = "SELECT DISTINCT commit_sha FROM issue_commit WHERE project_id=?"
-    commits = dbutils.execute_query(commits_sql, (project_id,), DATABASE_FILE)
-    return commits
-
-
-def insert_tags_per_commit(db_records):
-    insert_tag = "INSERT INTO commit_tag VALUES (?, ?, ?)"
-    dbutils.load_list(insert_tag, db_records, DATABASE_FILE)
-
-
 def get_tags_per_commit(repository_location, project_id):
-    commits = get_commits_per_project(project_id)
+    commits = gjdata.get_commits_per_project(project_id)
 
     git_client = git.Git(repository_location)
 
@@ -73,7 +36,7 @@ def get_tags_per_commit(repository_location, project_id):
 
         if db_records:
             print "Writing ", len(db_records), " tags for commit ", commit
-            insert_tags_per_commit(db_records)
+            gjdata.insert_tags_per_commit(db_records)
         else:
             print "No tags found for commit: ", commit
 
@@ -84,6 +47,75 @@ def get_first_last_version(versions):
     earliest_version = version_names[0] if len(version_names) > 0 else ""
     latest_version = version_names[-1] if len(version_names) > 0 else ""
     return earliest_version, latest_version
+
+
+def get_tags_for_commits(project_id, commits):
+    tags_per_comit = []
+
+    for commit in commits:
+        tags = gjdata.get_tags_by_commit_sha(project_id, commit[SHA_INDEX])
+        # Only including tags in release format
+        release_tags = [tag[TAG_NAME_INDEX] for tag in tags if re.match(gminer.RELEASE_REGEX, tag[TAG_NAME_INDEX])]
+        if release_tags:
+            tags_per_comit.append(release_tags)
+
+    return tags_per_comit
+
+
+def write_consolidated_file(project_id, records):
+    file_name = "Release_Counter_" + project_id + ".csv"
+    print "Writing " + str(len(records)) + " issues in " + file_name
+    with open(file_name, "wb") as release_file:
+        csv_writer = csv.writer(release_file)
+        csv_writer.writerow(
+            ("Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
+             "Earliest Fix Version", "Latest Fix Version", "Commits",
+             "Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance"))
+        for record in records:
+            csv_writer.writerow(record)
+
+
+def preprocess(project_id, release):
+    # TODO(cgavidia): This looks awful. Refactor later.
+    if project_id == "12313920":
+        if release == "pre-4.0.0":
+            return "3.0.0"
+        elif release == "Future":
+            return "6.0.0"
+
+    return release
+
+
+def get_release_distance(project_id, one_release, other_release):
+    if not one_release or not other_release:
+        return ""
+
+    separator = "."
+    one_release_tokens = preprocess(project_id, one_release).split(separator)
+    other_release_tokens = preprocess(project_id, other_release).split(separator)
+
+    per_major = 7
+    major_index = 0
+    one_major = int(one_release_tokens[major_index])
+    other_major = int(other_release_tokens[major_index])
+    if one_major != other_major:
+        return (other_major - one_major) * per_major
+
+    per_minor = 3
+    minor_index = 1
+    one_minor = int(one_release_tokens[minor_index])
+    other_minor = int(other_release_tokens[minor_index])
+    if one_minor != other_minor:
+        return (other_minor - one_minor) * per_minor
+
+    per_patch = 1
+    patch_index = 2
+    one_patch = int(one_release_tokens[patch_index])
+    other_patch = int(other_release_tokens[patch_index])
+    if one_patch != other_patch:
+        return (other_patch - one_patch) * per_patch
+
+    return 0
 
 
 def consolidate_information(project_id):
@@ -102,35 +134,31 @@ def consolidate_information(project_id):
         fix_versions = jdata.get_fix_versions(issue_id)
         earliest_fix, latest_fix = get_first_last_version(fix_versions)
 
-        commits = get_commits_by_issue(project_id, key)
-        unique_tags = set()
+        commits = gjdata.get_commits_by_issue(project_id, key)
+        tags_per_comit = get_tags_for_commits(project_id, commits)
 
-        for commit in commits:
-            tags = get_tags_by_commit_sha(project_id, commit[SHA_INDEX])
-            # Only including tags in release format
-            unique_tags.update(
-                [tag[TAG_NAME_INDEX] for tag in tags if re.match(gminer.RELEASE_REGEX, tag[TAG_NAME_INDEX])])
+        sorted_tags = []
+        if tags_per_comit:
+            common_tags = set(tags_per_comit[0]).intersection(*tags_per_comit)
+            if not common_tags:
+                # When no common tags found, select the commit present on more releases.
+                common_tags = max(tags_per_comit, key=len)
 
-        sorted_tags = sorted(list(unique_tags))
+            sorted_tags = sorted(list(common_tags))
         earliest_tag = sorted_tags[0] if len(sorted_tags) > 0 else ""
+
+        github_jira_distance = get_release_distance(project_id, earliest_fix, earliest_tag)
+        jira_distance = get_release_distance(project_id, earliest_affected, earliest_fix)
+        github_distance = get_release_distance(project_id, earliest_affected, earliest_tag)
 
         csv_record = (
             key, resolution, status, priority, earliest_affected, latest_affected, earliest_fix, latest_fix,
-            len(commits), len(unique_tags),
-            earliest_tag)
+            len(commits), len(sorted_tags),
+            earliest_tag, github_jira_distance, jira_distance, github_distance)
         print "Analizing Issue " + key
         records.append(csv_record)
 
-    file_name = "Release_Counter_" + project_id + ".csv"
-    print "Writing " + str(len(records)) + " issues in " + file_name
-    with open(file_name, "wb") as release_file:
-        csv_writer = csv.writer(release_file)
-        csv_writer.writerow(
-            ("Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
-             "Earliest Fix Version", "Latest Fix Version", "Commits",
-             "Tags", "Earliest Tag"))
-        for record in records:
-            csv_writer.writerow(record)
+    write_consolidated_file(project_id, records)
 
 
 def get_issues_and_commits(repository_location, project_id):
@@ -145,9 +173,9 @@ def get_issues_and_commits(repository_location, project_id):
                                      FORMAT_SHA_OPTION).split(
             "\n")
         db_records = [(project_id, key, sha) for sha in commit_shas if sha]
-        if (db_records):
+        if db_records:
             print "Writing ", len(db_records), " commits for Issue ", key
-            insert_commits_per_issue(db_records)
+            gjdata.insert_commits_per_issue(db_records)
         else:
             print "No commits found for Issue ", key
 

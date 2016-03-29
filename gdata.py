@@ -2,7 +2,6 @@
 Handles the storage of Github information on a database
 """
 
-import sqlite3
 import dbutils
 
 DATABASE_FILE = "github.sqlite"
