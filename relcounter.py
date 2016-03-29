@@ -14,7 +14,9 @@ COMMITS_DDL = "CREATE TABLE issue_commit " \
 TAGS_DDL = "CREATE TABLE commit_tag (project_id TEXT, commit_sha TEXT, tag_name TEXT," \
            " PRIMARY KEY(project_id, commit_sha, tag_name))"
 DATABASE_FILE = "jira_github.sqlite"
+WORD_BOUNDARY = r'\b'
 PATTERN_OPTION = "--grep="
+ALL_BRANCHES_OPTION = "--all"
 FORMAT_SHA_OPTION = "--pretty=%H"
 CONTAINS_OPTION = "--contains"
 
@@ -24,30 +26,14 @@ ISSUE_ID_INDEX = 27
 VERSION_NAME_INDEX = 6
 SHA_INDEX = 2
 TAG_NAME_INDEX = 2
+RESNAME_INDEX = 34
+STATUS_INDEX = 35
+PRIORNAME_INDEX = 36
 
 
 def create_schema():
     dbutils.create_schema([COMMITS_DDL,
                            TAGS_DDL], DATABASE_FILE)
-
-
-def get_tags_per_commit(repository_location, project_id):
-    # TODO(cgavidia): Refactor ALL SQL to methods. And probably to a module.
-    commits_sql = "SELECT DISTINCT commit_sha FROM issue_commit WHERE project_id=?"
-    commits = dbutils.execute_query(commits_sql, (project_id,), DATABASE_FILE)
-
-    git_client = git.Git(repository_location)
-    insert_tag = "INSERT INTO commit_tag VALUES (?, ?, ?)"
-
-    for commit in commits:
-        tags = git_client.tag(CONTAINS_OPTION, commit).split("\n")
-        db_records = [(project_id, commit[0], tag) for tag in tags if tag]
-
-        if db_records:
-            print "Writing ", len(db_records), " tags for commit ", commit
-            dbutils.load_list(insert_tag, db_records, DATABASE_FILE)
-        else:
-            print "No tags found for commit: ", commit
 
 
 def get_commits_by_issue(project_id, key):
@@ -60,6 +46,46 @@ def get_tags_by_commit_sha(project_id, commit_sha):
     return dbutils.execute_query(tag_sql, (project_id, commit_sha), DATABASE_FILE)
 
 
+def insert_commits_per_issue(db_records):
+    insert_commit = "INSERT INTO issue_commit VALUES (?, ?, ?)"
+    dbutils.load_list(insert_commit, db_records, DATABASE_FILE)
+
+
+def get_commits_per_project(project_id):
+    commits_sql = "SELECT DISTINCT commit_sha FROM issue_commit WHERE project_id=?"
+    commits = dbutils.execute_query(commits_sql, (project_id,), DATABASE_FILE)
+    return commits
+
+
+def insert_tags_per_commit(db_records):
+    insert_tag = "INSERT INTO commit_tag VALUES (?, ?, ?)"
+    dbutils.load_list(insert_tag, db_records, DATABASE_FILE)
+
+
+def get_tags_per_commit(repository_location, project_id):
+    commits = get_commits_per_project(project_id)
+
+    git_client = git.Git(repository_location)
+
+    for commit in commits:
+        tags = git_client.tag(CONTAINS_OPTION, commit).split("\n")
+        db_records = [(project_id, commit[0], tag) for tag in tags if tag]
+
+        if db_records:
+            print "Writing ", len(db_records), " tags for commit ", commit
+            insert_tags_per_commit(db_records)
+        else:
+            print "No tags found for commit: ", commit
+
+
+def get_first_last_version(versions):
+    version_names = [version[VERSION_NAME_INDEX] for version in versions]
+    version_names = sorted(version_names)
+    earliest_version = version_names[0] if len(version_names) > 0 else ""
+    latest_version = version_names[-1] if len(version_names) > 0 else ""
+    return earliest_version, latest_version
+
+
 def consolidate_information(project_id):
     project_issues = jdata.get_project_issues(project_id)
 
@@ -67,11 +93,14 @@ def consolidate_information(project_id):
     for issue in project_issues:
         key = issue[KEY_INDEX]
         issue_id = issue[ISSUE_ID_INDEX]
+        resolution = issue[RESNAME_INDEX]
+        status = issue[STATUS_INDEX]
+        priority = issue[PRIORNAME_INDEX]
+
         affected_versions = jdata.get_affected_versions(issue_id)
-        affected_versions = [version[VERSION_NAME_INDEX] for version in affected_versions]
-        affected_versions = sorted(affected_versions)
-        earliest_affected = affected_versions[0] if len(affected_versions) > 0 else ""
-        latest_affected = affected_versions[-1] if len(affected_versions) > 0 else ""
+        earliest_affected, latest_affected = get_first_last_version(affected_versions)
+        fix_versions = jdata.get_fix_versions(issue_id)
+        earliest_fix, latest_fix = get_first_last_version(fix_versions)
 
         commits = get_commits_by_issue(project_id, key)
         unique_tags = set()
@@ -85,13 +114,21 @@ def consolidate_information(project_id):
         sorted_tags = sorted(list(unique_tags))
         earliest_tag = sorted_tags[0] if len(sorted_tags) > 0 else ""
 
-        csv_record = (key, earliest_affected, latest_affected, len(commits), len(unique_tags), earliest_tag)
-        print csv_record
+        csv_record = (
+            key, resolution, status, priority, earliest_affected, latest_affected, earliest_fix, latest_fix,
+            len(commits), len(unique_tags),
+            earliest_tag)
+        print "Analizing Issue " + key
         records.append(csv_record)
 
-    with open("Release_Counter_" + project_id + ".csv", "wb") as release_file:
+    file_name = "Release_Counter_" + project_id + ".csv"
+    print "Writing " + str(len(records)) + " issues in " + file_name
+    with open(file_name, "wb") as release_file:
         csv_writer = csv.writer(release_file)
-        csv_writer.writerow(("Issue Key", "Earliest Version", "Latest Version", "Commits", "Tags", "Earliest Tag"))
+        csv_writer.writerow(
+            ("Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
+             "Earliest Fix Version", "Latest Fix Version", "Commits",
+             "Tags", "Earliest Tag"))
         for record in records:
             csv_writer.writerow(record)
 
@@ -101,15 +138,16 @@ def get_issues_and_commits(repository_location, project_id):
 
     project_issues = jdata.get_project_issues(project_id)
     print "Issues in project: ", len(project_issues)
-    insert_commit = "INSERT INTO issue_commit VALUES (?, ?, ?)"
 
     for issue in project_issues:
         key = issue[KEY_INDEX]
-        commit_shas = git_client.log(PATTERN_OPTION + key, FORMAT_SHA_OPTION).split("\n")
+        commit_shas = git_client.log(ALL_BRANCHES_OPTION, PATTERN_OPTION + WORD_BOUNDARY + key + WORD_BOUNDARY,
+                                     FORMAT_SHA_OPTION).split(
+            "\n")
         db_records = [(project_id, key, sha) for sha in commit_shas if sha]
         if (db_records):
             print "Writing ", len(db_records), " commits for Issue ", key
-            dbutils.load_list(insert_commit, db_records, DATABASE_FILE)
+            insert_commits_per_issue(db_records)
         else:
             print "No commits found for Issue ", key
 

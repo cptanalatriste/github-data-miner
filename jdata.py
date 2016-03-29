@@ -19,6 +19,19 @@ def get_affected_versions(issue_id):
     return dbutils.execute_query(version_sql, (issue_id,), DATABASE_FILE)
 
 
+def get_fix_versions(issue_id):
+    version_sql = "SELECT v.* FROM Version v, Issue i , FixVersionPerIssue vi " \
+                  "WHERE i.id = vi.issueId AND vi.versionId = v.id AND i.id =?"
+
+    return dbutils.execute_query(version_sql, (issue_id,), DATABASE_FILE)
+
+
 def get_project_issues(project_id):
-    issue_sql = "SELECT * FROM Issue WHERE projectId=?"
+    issue_sql = "SELECT i.* , r.name resname, s.name statname, p.name priorname " \
+                "FROM Issue i " \
+                "LEFT OUTER JOIN Resolution r ON i.resolutionId = r.id " \
+                "LEFT OUTER JOIN Status s ON i.statusId = s.id " \
+                "LEFT OUTER JOIN Priority p on i.priorityId = p.id " \
+                "WHERE i.projectId=?"
+
     return dbutils.execute_query(issue_sql, (project_id,), DATABASE_FILE)
