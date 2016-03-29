@@ -26,6 +26,8 @@ def execute_query(sql_query, parameters, db_file):
 def create_schema(table_list, db_file):
     """
     Creates the SQLite tables
+    :param db_file: Database file.
+    :param table_list: List of table's DDL statements.
     :return: None
     """
     print "Starting schema creation ..."
@@ -44,6 +46,7 @@ def create_schema(table_list, db_file):
 def load_list(sql_insert, row_list, db_file):
     """
     Inserts a list of items into the database.
+    :param db_file: Database file.
     :param sql_insert: SQL for inserting a row.
     :param row_list: List containing tuples with tag information.
     :return: None.
