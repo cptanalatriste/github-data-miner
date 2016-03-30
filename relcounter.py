@@ -7,6 +7,7 @@ import gjdata
 import jdata
 import gminer
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from pandas import DataFrame
 
@@ -71,7 +72,8 @@ def get_csv_file_name(project_id):
 def write_consolidated_file(project_id, records):
     column_header = ["Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
                      "Earliest Fix Version", "Latest Fix Version", "Commits",
-                     "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance"]
+                     "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance",
+                     "Fix distance"]
     issues_dataframe = DataFrame(records, columns=column_header)
 
     print "Writing " + str(len(records)) + " issues in " + get_csv_file_name(project_id)
@@ -86,14 +88,14 @@ def preprocess(project_id, release):
         if release == "pre-4.0.0":
             return "3.0.0"
         elif release == "Future":
-            return "6.0.0"
+            return "5.0.0"
 
     return release
 
 
 def get_release_distance(project_id, one_release, other_release):
     if not one_release or not other_release:
-        return ""
+        return None
 
     separator = "."
     one_release_tokens = preprocess(project_id, one_release).split(separator)
@@ -127,14 +129,34 @@ def get_earliest_tag(tags_per_comit):
     sorted_tags = []
 
     if tags_per_comit:
-        common_tags = set(tags_per_comit[0]).intersection(*tags_per_comit)
-        if not common_tags:
-            # When no common tags found, select the commit present on more releases.
-            common_tags = max(tags_per_comit, key=len)
+        tag_bag = set(tags_per_comit[0]).intersection(*tags_per_comit)
+        if not tag_bag:
+            # When no common tags found, select the minimum from all the available tags.
+            tag_bag = set(tags_per_comit[0]).union(*tags_per_comit)
 
-        sorted_tags = sorted(list(common_tags))
+        sorted_tags = sorted(list(tag_bag))
+
+        # Minimum from Union
+        # all_tags = set(tags_per_comit[0]).union(*tags_per_comit)
+        # sorted_tags = sorted(list(all_tags))
+
+        # Long lived only
+        # long_lived_commit = max(tags_per_comit, key=len)
+        # sorted_tags = sorted(list(long_lived_commit))
+
+        # Intersection only
+        # common_tags = set(tags_per_comit[0]).intersection(*tags_per_comit)
+        # sorted_tags = sorted(list(common_tags))
+
     earliest_tag = sorted_tags[0] if len(sorted_tags) > 0 else ""
     return earliest_tag
+
+
+def get_fix_distance(jira_distance, github_distance):
+    if github_distance is not None:
+        return github_distance
+
+    return jira_distance
 
 
 def consolidate_information(project_id):
@@ -161,10 +183,12 @@ def consolidate_information(project_id):
         jira_distance = get_release_distance(project_id, earliest_affected, earliest_fix)
         github_distance = get_release_distance(project_id, earliest_affected, earliest_tag)
 
+        fix_distance = get_fix_distance(jira_distance, github_distance)
+
         csv_record = (
             key, resolution, status, priority, earliest_affected, latest_affected, earliest_fix, latest_fix,
             len(commits), len(tags_per_comit),
-            earliest_tag, github_jira_distance, jira_distance, github_distance)
+            earliest_tag, github_jira_distance, jira_distance, github_distance, fix_distance)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -190,6 +214,23 @@ def get_issues_and_commits(repository_location, project_id):
             print "No commits found for Issue ", key
 
 
+def priority_analysis(project_id):
+    issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
+
+    distance_column = 'Fix distance'
+    resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Resolved'])]
+    resolved_issues = resolved_issues[~issues_dataframe[distance_column].isnull()]
+
+    priority_list = ['Blocker', 'Critical', 'Major', 'Minor', 'Trivial']
+
+    print "Generating histograms for project ", project_id
+    for priority_value in priority_list:
+        priority_column = 'Priority'
+        priority_issues = resolved_issues[resolved_issues[priority_column] == priority_value]
+        priority_issues.hist(column=distance_column, normed=True)
+        plt.savefig("Priority_" + priority_value + "_" + project_id + ".png")
+
+
 def main():
     # Configuration for CLOUDSTACK
     repository_location = "C:\Users\Carlos G. Gavidia\git\cloudstack"
@@ -198,11 +239,9 @@ def main():
     # create_schema()
     # get_issues_and_commits(repository_location, project_id)
     # get_tags_per_commit(repository_location, project_id)
-    # issues_dataframe = consolidate_information(project_id)
+    # consolidate_information(project_id)
 
-    issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
-    print "issues_dataframe['JIRA/GitHub Distance'].mean() :", issues_dataframe['JIRA/GitHub Distance'].mean()
-    print "issues_dataframe['JIRA/GitHub Distance'].var() :", issues_dataframe['JIRA/GitHub Distance'].var()
+    priority_analysis(project_id)
 
 
 if __name__ == "__main__":
