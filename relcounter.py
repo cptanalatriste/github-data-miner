@@ -2,11 +2,13 @@
 Module for the calculation of the releases to fix field.
 """
 import re
-import csv
 import git
 import gjdata
 import jdata
 import gminer
+import pandas as pd
+
+from pandas import DataFrame
 
 WORD_BOUNDARY = r'\b'
 PATTERN_OPTION = "--grep="
@@ -62,17 +64,20 @@ def get_tags_for_commits(project_id, commits):
     return tags_per_comit
 
 
+def get_csv_file_name(project_id):
+    return "Release_Counter_" + project_id + ".csv"
+
+
 def write_consolidated_file(project_id, records):
-    file_name = "Release_Counter_" + project_id + ".csv"
-    print "Writing " + str(len(records)) + " issues in " + file_name
-    with open(file_name, "wb") as release_file:
-        csv_writer = csv.writer(release_file)
-        csv_writer.writerow(
-            ("Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
-             "Earliest Fix Version", "Latest Fix Version", "Commits",
-             "Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance"))
-        for record in records:
-            csv_writer.writerow(record)
+    column_header = ["Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
+                     "Earliest Fix Version", "Latest Fix Version", "Commits",
+                     "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance"]
+    issues_dataframe = DataFrame(records, columns=column_header)
+
+    print "Writing " + str(len(records)) + " issues in " + get_csv_file_name(project_id)
+    issues_dataframe.to_csv(get_csv_file_name(project_id))
+
+    return issues_dataframe
 
 
 def preprocess(project_id, release):
@@ -118,6 +123,20 @@ def get_release_distance(project_id, one_release, other_release):
     return 0
 
 
+def get_earliest_tag(tags_per_comit):
+    sorted_tags = []
+
+    if tags_per_comit:
+        common_tags = set(tags_per_comit[0]).intersection(*tags_per_comit)
+        if not common_tags:
+            # When no common tags found, select the commit present on more releases.
+            common_tags = max(tags_per_comit, key=len)
+
+        sorted_tags = sorted(list(common_tags))
+    earliest_tag = sorted_tags[0] if len(sorted_tags) > 0 else ""
+    return earliest_tag
+
+
 def consolidate_information(project_id):
     project_issues = jdata.get_project_issues(project_id)
 
@@ -136,16 +155,7 @@ def consolidate_information(project_id):
 
         commits = gjdata.get_commits_by_issue(project_id, key)
         tags_per_comit = get_tags_for_commits(project_id, commits)
-
-        sorted_tags = []
-        if tags_per_comit:
-            common_tags = set(tags_per_comit[0]).intersection(*tags_per_comit)
-            if not common_tags:
-                # When no common tags found, select the commit present on more releases.
-                common_tags = max(tags_per_comit, key=len)
-
-            sorted_tags = sorted(list(common_tags))
-        earliest_tag = sorted_tags[0] if len(sorted_tags) > 0 else ""
+        earliest_tag = get_earliest_tag(tags_per_comit)
 
         github_jira_distance = get_release_distance(project_id, earliest_fix, earliest_tag)
         jira_distance = get_release_distance(project_id, earliest_affected, earliest_fix)
@@ -153,12 +163,12 @@ def consolidate_information(project_id):
 
         csv_record = (
             key, resolution, status, priority, earliest_affected, latest_affected, earliest_fix, latest_fix,
-            len(commits), len(sorted_tags),
+            len(commits), len(tags_per_comit),
             earliest_tag, github_jira_distance, jira_distance, github_distance)
         print "Analizing Issue " + key
         records.append(csv_record)
 
-    write_consolidated_file(project_id, records)
+    return write_consolidated_file(project_id, records)
 
 
 def get_issues_and_commits(repository_location, project_id):
@@ -188,7 +198,11 @@ def main():
     # create_schema()
     # get_issues_and_commits(repository_location, project_id)
     # get_tags_per_commit(repository_location, project_id)
-    consolidate_information(project_id)
+    # issues_dataframe = consolidate_information(project_id)
+
+    issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
+    print "issues_dataframe['JIRA/GitHub Distance'].mean() :", issues_dataframe['JIRA/GitHub Distance'].mean()
+    print "issues_dataframe['JIRA/GitHub Distance'].var() :", issues_dataframe['JIRA/GitHub Distance'].var()
 
 
 if __name__ == "__main__":
