@@ -219,16 +219,25 @@ def priority_analysis(project_id):
 
     distance_column = 'Fix distance'
     resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Resolved'])]
+    resolved_issues = issues_dataframe[issues_dataframe['Resolution'].isin(['Done', 'Fixed'])]
     resolved_issues = resolved_issues[~issues_dataframe[distance_column].isnull()]
 
     priority_list = ['Blocker', 'Critical', 'Major', 'Minor', 'Trivial']
 
+    priority_column = 'Priority'
     print "Generating histograms for project ", project_id
+
+    resolved_issues[priority_column].value_counts(normalize=True).plot(kind='bar')
+    plt.savefig("Priority_Distribution_for_" + project_id + ".png")
+
+    resolved_issues['Commits'].value_counts(normalize=True).sort_index().plot(kind='bar')
+    plt.savefig("Commits_Distribution_for_" + project_id + ".png")
+
     for priority_value in priority_list:
-        priority_column = 'Priority'
         priority_issues = resolved_issues[resolved_issues[priority_column] == priority_value]
-        priority_issues.hist(column=distance_column, normed=True)
-        plt.savefig("Priority_" + priority_value + "_" + project_id + ".png")
+        figure, axes = plt.subplots(1, 1, figsize=(10, 10))
+        priority_issues[distance_column].value_counts(normalize=True).sort_index().plot(kind='bar', ax=axes)
+        axes.get_figure().savefig("Priority_" + priority_value + "_" + project_id + ".png")
 
 
 def main():
