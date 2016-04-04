@@ -29,12 +29,18 @@ PRIORNAME_INDEX = 36
 
 
 def get_tags_per_commit(repository_location, project_id):
+    """
+    For an specific project, it obtains the tags for all the commits of the project and stores them on the database.
+    :param repository_location: Location of the Git repository.
+    :param project_id: JIRA's project identifier.
+    :return: None.
+    """
     commits = gjdata.get_commits_per_project(project_id)
 
     git_client = git.Git(repository_location)
 
     for commit in commits:
-        tags = git_client.tag(CONTAINS_OPTION, commit).split("\n")
+        tags = git_client.tag(CONTAINS_OPTION, commit[0]).split("\n")
         db_records = [(project_id, commit[0], tag) for tag in tags if tag]
 
         if db_records:
@@ -240,6 +246,26 @@ def priority_analysis(project_id):
         axes.get_figure().savefig("Priority_" + priority_value + "_" + project_id + ".png")
 
 
+def get_stats_per_commit(repository_location, project_id):
+    print "Retrieving stat information for commits on project " + project_id
+    repository = git.Repo(repository_location)
+
+    commits = gjdata.get_commits_per_project(project_id)
+    db_records = []
+    for commit_tuple in commits:
+        commit_sha = commit_tuple[0]
+        commit = repository.rev_parse(commit_sha)
+
+        print "Stats obtained for commit ", commit_sha
+        total_stats = commit.stats.total
+        db_records.append(
+            (project_id, commit_sha, total_stats['deletions'], total_stats['lines'], total_stats['insertions'],
+             total_stats['files']))
+
+    print "Storing ", len(db_records), " records in the database."
+    gjdata.insert_stats_per_commit(db_records)
+
+
 def main():
     # Configuration for CLOUDSTACK
     repository_location = "C:\Users\Carlos G. Gavidia\git\cloudstack"
@@ -248,9 +274,10 @@ def main():
     # create_schema()
     # get_issues_and_commits(repository_location, project_id)
     # get_tags_per_commit(repository_location, project_id)
-    # consolidate_information(project_id)
+    # get_stats_per_commit(repository_location, project_id)
+    # priority_analysis(project_id)
 
-    priority_analysis(project_id)
+    consolidate_information(project_id)
 
 
 if __name__ == "__main__":
