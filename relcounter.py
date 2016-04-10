@@ -8,6 +8,7 @@ import jdata
 import gminer
 import pandas as pd
 import matplotlib.pyplot as plt
+import pprint
 
 from pandas import DataFrame
 
@@ -16,6 +17,7 @@ PATTERN_OPTION = "--grep="
 ALL_BRANCHES_OPTION = "--all"
 FORMAT_SHA_OPTION = "--pretty=%H"
 CONTAINS_OPTION = "--contains"
+ONE_LINE_OPTION = "--pretty=oneline"
 
 # TODO(cgavidia): Move to JDATA module
 KEY_INDEX = 31
@@ -201,6 +203,32 @@ def consolidate_information(project_id):
     return write_consolidated_file(project_id, records)
 
 
+def commit_analysis(repository_location, project_id, project_key):
+    print "Analizing commits for project ", project_id
+    git_client = git.Git(repository_location)
+
+    log_lines = git_client.log(ALL_BRANCHES_OPTION, ONE_LINE_OPTION).splitlines()
+    total_commits = len(log_lines)
+
+    messages = [log_line.partition(' ')[2] for log_line in log_lines]
+    with_jira_reference = sum(1 for message in messages if project_key in message) / float(total_commits)
+    non_jira_commits = [message for message in messages if project_key not in message]
+
+    print "non_jira_commits ", pprint.pprint(non_jira_commits)
+    print "Total commits: ", total_commits
+    print "Commits with project key: ", with_jira_reference
+
+    labels = ["Contain JIRA key (" + str(with_jira_reference * 100) + " %)",
+              "Does not contain JIRA key (" + str((1 - with_jira_reference) * 100) + " %)"]
+    sizes = [with_jira_reference, 1 - with_jira_reference]
+
+    figure, axes = plt.subplots(1, 1, figsize=(10, 10))
+
+    patches, texts = plt.pie(sizes)
+    plt.legend(patches, labels, loc="best")
+    plt.savefig("Commits_with_JIRA_key_for_" + project_id + ".png")
+
+
 def get_issues_and_commits(repository_location, project_id):
     git_client = git.Git(repository_location)
 
@@ -221,6 +249,11 @@ def get_issues_and_commits(repository_location, project_id):
 
 
 def priority_analysis(project_id):
+    """
+    Generates charts regarding the relationship between priority and fix distance.
+    :param project_id: Project identifier.
+    :return: None.
+    """
     issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
 
     distance_column = 'Fix distance'
@@ -233,16 +266,24 @@ def priority_analysis(project_id):
     priority_column = 'Priority'
     print "Generating histograms for project ", project_id
 
-    resolved_issues[priority_column].value_counts(normalize=True).plot(kind='bar')
-    plt.savefig("Priority_Distribution_for_" + project_id + ".png")
+    figure, axes = plt.subplots(1, 1, figsize=(10, 10))
+    resolved_issues[priority_column].value_counts(normalize=True).plot(kind='bar', ax=axes)
+    axes.set_xlabel("Priority")
+    axes.set_ylabel("% of issues")
+    axes.get_figure().savefig("Priority_Distribution_for_" + project_id + ".png")
 
-    resolved_issues['Commits'].value_counts(normalize=True).sort_index().plot(kind='bar')
-    plt.savefig("Commits_Distribution_for_" + project_id + ".png")
+    figure, axes = plt.subplots(1, 1, figsize=(10, 10))
+    resolved_issues['Commits'].value_counts(normalize=True).sort_index().plot(kind='bar', ax=axes)
+    axes.set_xlabel("Commits per issue")
+    axes.set_ylabel("% of issues")
+    axes.get_figure().savefig("Commits_Distribution_for_" + project_id + ".png")
 
     for priority_value in priority_list:
         priority_issues = resolved_issues[resolved_issues[priority_column] == priority_value]
         figure, axes = plt.subplots(1, 1, figsize=(10, 10))
         priority_issues[distance_column].value_counts(normalize=True).sort_index().plot(kind='bar', ax=axes)
+        axes.set_xlabel("Fix distance")
+        axes.set_ylabel("% of " + str(priority_value) + " issues")
         axes.get_figure().savefig("Priority_" + priority_value + "_" + project_id + ".png")
 
 
@@ -270,14 +311,16 @@ def main():
     # Configuration for CLOUDSTACK
     repository_location = "C:\Users\Carlos G. Gavidia\git\cloudstack"
     project_id = "12313920"
+    project_key = "CLOUDSTACK"
 
     # create_schema()
     # get_issues_and_commits(repository_location, project_id)
     # get_tags_per_commit(repository_location, project_id)
     # get_stats_per_commit(repository_location, project_id)
-    # priority_analysis(project_id)
 
-    consolidate_information(project_id)
+    # consolidate_information(project_id)
+    # priority_analysis(project_id)
+    commit_analysis(repository_location, project_id, project_key)
 
 
 if __name__ == "__main__":
