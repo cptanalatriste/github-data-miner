@@ -3,12 +3,16 @@ Module for the calculation of the releases to fix field.
 """
 import re
 import git
+from dateutil.tz import tzlocal
+
 import gjdata
 import jdata
 import gminer
 import pandas as pd
 import matplotlib.pyplot as plt
 import pprint
+import dateutil.parser
+import datetime
 
 from pandas import DataFrame
 
@@ -18,6 +22,9 @@ ALL_BRANCHES_OPTION = "--all"
 FORMAT_SHA_OPTION = "--pretty=%H"
 CONTAINS_OPTION = "--contains"
 ONE_LINE_OPTION = "--pretty=oneline"
+
+HEAD_OPTION = "-1"
+DATE_FORMAT_OPTION = "--format=%ai"
 
 # TODO(cgavidia): Move to JDATA module
 KEY_INDEX = 31
@@ -52,6 +59,21 @@ def get_tags_per_commit(repository_location, project_id):
             print "No tags found for commit: ", commit
 
 
+def get_tags_dates(repository_location, project_id):
+    tags = gjdata.get_tags_per_project(project_id)
+
+    git_client = git.Git(repository_location)
+    db_records = []
+
+    for tag_name in tags:
+        tag_date = git_client.log(HEAD_OPTION, DATE_FORMAT_OPTION, tag_name)
+        print "Date for tag ", tag_name[0], " is ", tag_date
+        db_records.append((project_id, tag_name[0], tag_date))
+
+    print "Writing ", len(db_records), " tag dates for project ", project_id
+    gjdata.insert_tag_dates(db_records)
+
+
 def get_first_last_version(versions):
     version_names = [version[VERSION_NAME_INDEX] for version in versions]
     version_names = sorted(version_names)
@@ -78,6 +100,12 @@ def get_csv_file_name(project_id):
 
 
 def write_consolidated_file(project_id, records):
+    """
+    Creates a Dataframe with the consolidated fix distance information and writes it to a CSV file.
+    :param project_id: Project identifier in JIRA.
+    :param records: Records to be included in the CSV file.
+    :return: The created Dataframe.
+    """
     column_header = ["Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
                      "Earliest Fix Version", "Latest Fix Version", "Commits",
                      "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance",
@@ -101,43 +129,62 @@ def preprocess(project_id, release):
     return release
 
 
+def get_release_date(project_id, release_name):
+    """
+    Returns the date for an specific release. First, it looks on Git and then on JIRA.
+    :param project_id: JIRA project identifier.
+    :param release_name: Release name.
+    :return: The date as a datetime.
+    """
+    date_from_git = gjdata.get_tag_date(project_id, release_name)
+
+    if date_from_git:
+        date_as_string = date_from_git[0][2]
+        result = dateutil.parser.parse(date_as_string)
+        return result
+
+    date_from_jira = jdata.get_version_by_name(project_id, release_name)
+    if date_from_jira and date_from_jira[0][3]:
+        date_as_timestamp = date_from_jira[0][3] / 1000
+        result = datetime.datetime.fromtimestamp(date_as_timestamp, tz=tzlocal())
+        return result
+
+    return None
+
+
 def get_release_distance(project_id, one_release, other_release):
+    """
+    Calculates the release distance between two releases.
+    :param project_id: JIRA's project identifier.
+    :param one_release: Release name.
+    :param other_release: Another release name.
+    :return: Distance between the two releases.
+    """
     if not one_release or not other_release:
         return None
 
-    separator = "."
-    one_release_tokens = preprocess(project_id, one_release).split(separator)
-    other_release_tokens = preprocess(project_id, other_release).split(separator)
+    one_release_date = get_release_date(project_id, one_release)
+    other_release_date = get_release_date(project_id, other_release)
 
-    per_major = 7
-    major_index = 0
-    one_major = int(one_release_tokens[major_index])
-    other_major = int(other_release_tokens[major_index])
-    if one_major != other_major:
-        return (other_major - one_major) * per_major
+    if other_release_date and one_release_date:
+        difference = other_release_date - one_release_date
+        return difference.days
 
-    per_minor = 3
-    minor_index = 1
-    one_minor = int(one_release_tokens[minor_index])
-    other_minor = int(other_release_tokens[minor_index])
-    if one_minor != other_minor:
-        return (other_minor - one_minor) * per_minor
-
-    per_patch = 1
-    patch_index = 2
-    one_patch = int(one_release_tokens[patch_index])
-    other_patch = int(other_release_tokens[patch_index])
-    if one_patch != other_patch:
-        return (other_patch - one_patch) * per_patch
-
-    return 0
+    return None
 
 
 def get_earliest_tag(tags_per_comit):
+    """
+    From the list of tags per commits, it returns the tag that happens earlier
+    :param tags_per_comit: List of tags per several commits.
+    :return: Earliest tag.
+    """
     sorted_tags = []
 
     if tags_per_comit:
-        tag_bag = set(tags_per_comit[0]).intersection(*tags_per_comit)
+        tag_bag = None
+        # Itersection
+        # tag_bag = set(tags_per_comit[0]).intersection(*tags_per_comit)
         if not tag_bag:
             # When no common tags found, select the minimum from all the available tags.
             tag_bag = set(tags_per_comit[0]).union(*tags_per_comit)
@@ -168,6 +215,11 @@ def get_fix_distance(jira_distance, github_distance):
 
 
 def consolidate_information(project_id):
+    """
+    Generetes a consolidated CSV report for the fix distance calculation.
+    :param project_id: Project identifier in JIRA
+    :return: A Dataframe with the consolidated information.
+    """
     project_issues = jdata.get_project_issues(project_id)
 
     records = []
@@ -278,13 +330,27 @@ def priority_analysis(project_id):
     axes.set_ylabel("% of issues")
     axes.get_figure().savefig("Commits_Distribution_for_" + project_id + ".png")
 
+    priority_samples = []
+
     for priority_value in priority_list:
         priority_issues = resolved_issues[resolved_issues[priority_column] == priority_value]
+
         figure, axes = plt.subplots(1, 1, figsize=(10, 10))
-        priority_issues[distance_column].value_counts(normalize=True).sort_index().plot(kind='bar', ax=axes)
+        priority_issues[distance_column].hist(ax=axes)
         axes.set_xlabel("Fix distance")
         axes.set_ylabel("% of " + str(priority_value) + " issues")
         axes.get_figure().savefig("Priority_" + priority_value + "_" + project_id + ".png")
+
+        priority_samples.append(priority_issues[distance_column])
+
+    print "Generating consolidated priorities for project " + project_id
+
+    figure, axes = plt.subplots(1, 1, figsize=(10, 10))
+    axes.boxplot(priority_samples)
+    axes.set_xticklabels(priority_list)
+    axes.set_xlabel("Priorities")
+    axes.set_ylabel("Fix distance")
+    axes.get_figure().savefig("All_Priorities_" + project_id + ".png")
 
 
 def get_stats_per_commit(repository_location, project_id):
@@ -318,9 +384,11 @@ def main():
     # get_tags_per_commit(repository_location, project_id)
     # get_stats_per_commit(repository_location, project_id)
 
+    # get_tags_dates(repository_location, project_id)
+
     # consolidate_information(project_id)
-    # priority_analysis(project_id)
-    commit_analysis(repository_location, project_id, project_key)
+    priority_analysis(project_id)
+    # commit_analysis(repository_location, project_id, project_key)
 
 
 if __name__ == "__main__":
