@@ -5,8 +5,9 @@ import re
 import git
 from dateutil.tz import tzlocal
 
-import gjdata
+import loader
 import jdata
+import gjdata
 import gminer
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,11 +17,7 @@ import datetime
 
 from pandas import DataFrame
 
-WORD_BOUNDARY = r'\b'
-PATTERN_OPTION = "--grep="
 ALL_BRANCHES_OPTION = "--all"
-FORMAT_SHA_OPTION = "--pretty=%H"
-CONTAINS_OPTION = "--contains"
 ONE_LINE_OPTION = "--pretty=oneline"
 
 HEAD_OPTION = "-1"
@@ -30,48 +27,12 @@ DATE_FORMAT_OPTION = "--format=%ai"
 KEY_INDEX = 31
 ISSUE_ID_INDEX = 27
 VERSION_NAME_INDEX = 6
-SHA_INDEX = 2
-TAG_NAME_INDEX = 2
+SHA_INDEX = 3
+TAG_NAME_INDEX = 3
 RESNAME_INDEX = 34
 STATUS_INDEX = 35
 PRIORNAME_INDEX = 36
-
-
-def get_tags_per_commit(repository_location, project_id):
-    """
-    For an specific project, it obtains the tags for all the commits of the project and stores them on the database.
-    :param repository_location: Location of the Git repository.
-    :param project_id: JIRA's project identifier.
-    :return: None.
-    """
-    commits = gjdata.get_commits_per_project(project_id)
-
-    git_client = git.Git(repository_location)
-
-    for commit in commits:
-        tags = git_client.tag(CONTAINS_OPTION, commit[0]).split("\n")
-        db_records = [(project_id, commit[0], tag) for tag in tags if tag]
-
-        if db_records:
-            print "Writing ", len(db_records), " tags for commit ", commit
-            gjdata.insert_tags_per_commit(db_records)
-        else:
-            print "No tags found for commit: ", commit
-
-
-def get_tags_dates(repository_location, project_id):
-    tags = gjdata.get_tags_per_project(project_id)
-
-    git_client = git.Git(repository_location)
-    db_records = []
-
-    for tag_name in tags:
-        tag_date = git_client.log(HEAD_OPTION, DATE_FORMAT_OPTION, tag_name)
-        print "Date for tag ", tag_name[0], " is ", tag_date
-        db_records.append((project_id, tag_name[0], tag_date))
-
-    print "Writing ", len(db_records), " tag dates for project ", project_id
-    gjdata.insert_tag_dates(db_records)
+CREATED_DATE = 15
 
 
 def get_first_last_version(versions):
@@ -82,13 +43,22 @@ def get_first_last_version(versions):
     return earliest_version, latest_version
 
 
-def get_tags_for_commits(project_id, commits):
+def get_tags_for_commits(project_id, commits, release_regex=gminer.RELEASE_REGEX):
+    """
+    Returns a list of tags for a list of commits, according to a version regular expression.
+    :param project_id: JIRA Project identifier.
+    :param commits: List of commits.
+    :param release_regex: Regex to identify valid release names.
+    :return: List of tags.
+    """
     tags_per_comit = []
 
     for commit in commits:
         tags = gjdata.get_tags_by_commit_sha(project_id, commit[SHA_INDEX])
         # Only including tags in release format
-        release_tags = [tag[TAG_NAME_INDEX] for tag in tags if re.match(gminer.RELEASE_REGEX, tag[TAG_NAME_INDEX])]
+        release_tags = [tag[TAG_NAME_INDEX] for tag in tags if
+                        re.match(release_regex, tag[TAG_NAME_INDEX])]
+
         if release_tags:
             tags_per_comit.append(release_tags)
 
@@ -136,10 +106,11 @@ def get_release_date(project_id, release_name):
     :param release_name: Release name.
     :return: The date as a datetime.
     """
-    date_from_git = gjdata.get_tag_date(project_id, release_name)
+    date_from_git = gjdata.get_tag_information(project_id, release_name)
 
-    if date_from_git:
-        date_as_string = date_from_git[0][2]
+    # We are addressing the case where the release tag is present in one repository.
+    if date_from_git and len(date_from_git) == 1:
+        date_as_string = date_from_git[0][3]
         result = dateutil.parser.parse(date_as_string)
         return result
 
@@ -152,7 +123,7 @@ def get_release_date(project_id, release_name):
     return None
 
 
-def get_release_distance(project_id, one_release, other_release):
+def get_release_distance(project_id, one_release, other_release, unit="days"):
     """
     Calculates the release distance between two releases.
     :param project_id: JIRA's project identifier.
@@ -163,12 +134,17 @@ def get_release_distance(project_id, one_release, other_release):
     if not one_release or not other_release:
         return None
 
-    one_release_date = get_release_date(project_id, one_release)
-    other_release_date = get_release_date(project_id, other_release)
+    if unit == "days":
+        one_release_date = get_release_date(project_id, one_release)
+        other_release_date = get_release_date(project_id, other_release)
 
-    if other_release_date and one_release_date:
-        difference = other_release_date - one_release_date
-        return difference.days
+        if other_release_date and one_release_date:
+            difference = other_release_date - one_release_date
+            return difference.days
+    elif unit == "releases":
+        # TODO: Complete this method implementation
+        github_releases = []
+        jira_versions = []
 
     return None
 
@@ -183,25 +159,11 @@ def get_earliest_tag(tags_per_comit):
 
     if tags_per_comit:
         tag_bag = None
-        # Itersection
-        # tag_bag = set(tags_per_comit[0]).intersection(*tags_per_comit)
         if not tag_bag:
             # When no common tags found, select the minimum from all the available tags.
             tag_bag = set(tags_per_comit[0]).union(*tags_per_comit)
 
         sorted_tags = sorted(list(tag_bag))
-
-        # Minimum from Union
-        # all_tags = set(tags_per_comit[0]).union(*tags_per_comit)
-        # sorted_tags = sorted(list(all_tags))
-
-        # Long lived only
-        # long_lived_commit = max(tags_per_comit, key=len)
-        # sorted_tags = sorted(list(long_lived_commit))
-
-        # Intersection only
-        # common_tags = set(tags_per_comit[0]).intersection(*tags_per_comit)
-        # sorted_tags = sorted(list(common_tags))
 
     earliest_tag = sorted_tags[0] if len(sorted_tags) > 0 else ""
     return earliest_tag
@@ -214,12 +176,13 @@ def get_fix_distance(jira_distance, github_distance):
     return jira_distance
 
 
-def consolidate_information(project_id):
+def consolidate_information(project_id, release_regex, jira_to_git_release):
     """
     Generetes a consolidated CSV report for the fix distance calculation.
     :param project_id: Project identifier in JIRA
     :return: A Dataframe with the consolidated information.
     """
+    print "Generating consolidated file for project: ", project_id
     project_issues = jdata.get_project_issues(project_id)
 
     records = []
@@ -229,6 +192,10 @@ def consolidate_information(project_id):
         resolution = issue[RESNAME_INDEX]
         status = issue[STATUS_INDEX]
         priority = issue[PRIORNAME_INDEX]
+        create_timestamp = issue[CREATED_DATE]
+
+        # Apparently, the stored timestamp is in milliseconds
+        creation_date = datetime.datetime.fromtimestamp(create_timestamp / 1000, tz=tzlocal())
 
         affected_versions = jdata.get_affected_versions(issue_id)
         earliest_affected, latest_affected = get_first_last_version(affected_versions)
@@ -236,12 +203,18 @@ def consolidate_information(project_id):
         earliest_fix, latest_fix = get_first_last_version(fix_versions)
 
         commits = gjdata.get_commits_by_issue(project_id, key)
-        tags_per_comit = get_tags_for_commits(project_id, commits)
+        tags_per_comit = get_tags_for_commits(project_id, commits, release_regex=release_regex)
         earliest_tag = get_earliest_tag(tags_per_comit)
+
+        # if len(commits) > 0:
+        #     print 'earliest_affected ', earliest_affected, ' earliest_fix ', earliest_fix, ' earliest_tag ', earliest_tag
 
         github_jira_distance = get_release_distance(project_id, earliest_fix, earliest_tag)
         jira_distance = get_release_distance(project_id, earliest_affected, earliest_fix)
-        github_distance = get_release_distance(project_id, earliest_affected, earliest_tag)
+        github_distance = get_release_distance(project_id, jira_to_git_release(earliest_affected), earliest_tag)
+
+        # print "jira_distance ", earliest_affected, earliest_fix, jira_distance
+        # print "github_distance ", jira_to_git_release(earliest_affected), earliest_tag, github_distance
 
         fix_distance = get_fix_distance(jira_distance, github_distance)
 
@@ -279,25 +252,6 @@ def commit_analysis(repository_location, project_id, project_key):
     patches, texts = plt.pie(sizes)
     plt.legend(patches, labels, loc="best")
     plt.savefig("Commits_with_JIRA_key_for_" + project_id + ".png")
-
-
-def get_issues_and_commits(repository_location, project_id):
-    git_client = git.Git(repository_location)
-
-    project_issues = jdata.get_project_issues(project_id)
-    print "Issues in project: ", len(project_issues)
-
-    for issue in project_issues:
-        key = issue[KEY_INDEX]
-        commit_shas = git_client.log(ALL_BRANCHES_OPTION, PATTERN_OPTION + WORD_BOUNDARY + key + WORD_BOUNDARY,
-                                     FORMAT_SHA_OPTION).split(
-            "\n")
-        db_records = [(project_id, key, sha) for sha in commit_shas if sha]
-        if db_records:
-            print "Writing ", len(db_records), " commits for Issue ", key
-            gjdata.insert_commits_per_issue(db_records)
-        else:
-            print "No commits found for Issue ", key
 
 
 def priority_analysis(project_id):
@@ -353,42 +307,15 @@ def priority_analysis(project_id):
     axes.get_figure().savefig("All_Priorities_" + project_id + ".png")
 
 
-def get_stats_per_commit(repository_location, project_id):
-    print "Retrieving stat information for commits on project " + project_id
-    repository = git.Repo(repository_location)
-
-    commits = gjdata.get_commits_per_project(project_id)
-    db_records = []
-    for commit_tuple in commits:
-        commit_sha = commit_tuple[0]
-        commit = repository.rev_parse(commit_sha)
-
-        print "Stats obtained for commit ", commit_sha
-        total_stats = commit.stats.total
-        db_records.append(
-            (project_id, commit_sha, total_stats['deletions'], total_stats['lines'], total_stats['insertions'],
-             total_stats['files']))
-
-    print "Storing ", len(db_records), " records in the database."
-    gjdata.insert_stats_per_commit(db_records)
-
-
 def main():
-    # Configuration for CLOUDSTACK
-    repository_location = "C:\Users\Carlos G. Gavidia\git\cloudstack"
-    project_id = "12313920"
-    project_key = "CLOUDSTACK"
+    for config in loader.get_project_catalog():
+        project_id = config['project_id']
+        release_regex = config['release_regex']
+        jira_to_git_release = config['jira_to_git_release']
 
-    # create_schema()
-    # get_issues_and_commits(repository_location, project_id)
-    # get_tags_per_commit(repository_location, project_id)
-    # get_stats_per_commit(repository_location, project_id)
-
-    # get_tags_dates(repository_location, project_id)
-
-    # consolidate_information(project_id)
-    priority_analysis(project_id)
-    # commit_analysis(repository_location, project_id, project_key)
+        consolidate_information(project_id, release_regex, jira_to_git_release)
+        priority_analysis(project_id)
+        # commit_analysis(repository_location, project_id, project_key)
 
 
 if __name__ == "__main__":
