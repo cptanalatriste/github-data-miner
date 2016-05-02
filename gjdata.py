@@ -20,6 +20,14 @@ COMMIT_TABLE_DDL = "CREATE TABLE git_commit (project_id TEXT, repository TEXT , 
                    " PRIMARY KEY(project_id, repository, commit_sha))"
 
 
+def create_schema():
+    """
+    Creates the tables for storing the Github-JIRA information.
+    :return: None
+    """
+    dbutils.create_schema([COMMIT_TABLE_DDL], DATABASE_FILE)
+
+
 def get_tag_information(project_id, tag_name):
     """
     Returns the information of stored for a tag.
@@ -32,12 +40,15 @@ def get_tag_information(project_id, tag_name):
     return tags
 
 
-def create_schema():
+def get_tags_by_project(project_id):
     """
-    Creates the tables for storing the Github-JIRA information.
-    :return: None
+    Returns all the tags for an specific project.
+    :param project_id: JIRA's project identifier.
+    :return: List of tags
     """
-    dbutils.create_schema([COMMIT_TABLE_DDL], DATABASE_FILE)
+    tags_sql = "SELECT * FROM git_tag WHERE project_id=?"
+    tags = dbutils.execute_query(tags_sql, (project_id,), DATABASE_FILE)
+    return tags
 
 
 def insert_git_tags(db_records):

@@ -2,7 +2,12 @@
 Module for the calculation of the releases to fix field.
 """
 import re
+from bisect import bisect
+
+import os
 import git
+import winsound
+
 from dateutil.tz import tzlocal
 
 import loader
@@ -26,6 +31,7 @@ DATE_FORMAT_OPTION = "--format=%ai"
 # TODO(cgavidia): Move to JDATA module
 KEY_INDEX = 31
 ISSUE_ID_INDEX = 27
+VERSION_ID_INDEX = 4
 VERSION_NAME_INDEX = 6
 SHA_INDEX = 3
 TAG_NAME_INDEX = 3
@@ -36,10 +42,14 @@ CREATED_DATE = 15
 
 
 def get_first_last_version(versions):
-    version_names = [version[VERSION_NAME_INDEX] for version in versions]
-    version_names = sorted(version_names)
-    earliest_version = version_names[0] if len(version_names) > 0 else ""
-    latest_version = version_names[-1] if len(version_names) > 0 else ""
+    """
+    Returns the first and last items from a list of versions after sorting.
+    :param versions: List of versions.
+    :return: First and last versions as tuples.
+    """
+    sorted_versions = sorted(versions, key=lambda version: version[VERSION_NAME_INDEX])
+    earliest_version = sorted_versions[0] if len(sorted_versions) > 0 else None
+    latest_version = sorted_versions[-1] if len(sorted_versions) > 0 else None
     return earliest_version, latest_version
 
 
@@ -66,7 +76,8 @@ def get_tags_for_commits(project_id, commits, release_regex=gminer.RELEASE_REGEX
 
 
 def get_csv_file_name(project_id):
-    return "Release_Counter_" + project_id + ".csv"
+    filename = ".\\" + project_id + "\\Release_Counter_" + project_id + ".csv"
+    return filename
 
 
 def write_consolidated_file(project_id, records):
@@ -79,11 +90,16 @@ def write_consolidated_file(project_id, records):
     column_header = ["Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
                      "Earliest Fix Version", "Latest Fix Version", "Commits",
                      "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance",
-                     "Fix distance"]
+                     "Fix distance", "JIRA Distance in Releases", "GitHub Distance in Releases",
+                     "Fix Distance in Releases"]
     issues_dataframe = DataFrame(records, columns=column_header)
 
     print "Writing " + str(len(records)) + " issues in " + get_csv_file_name(project_id)
-    issues_dataframe.to_csv(get_csv_file_name(project_id))
+
+    file_name = get_csv_file_name(project_id)
+    if not os.path.exists(os.path.dirname(file_name)):
+        os.makedirs(os.path.dirname(file_name))
+    issues_dataframe.to_csv(file_name)
 
     return issues_dataframe
 
@@ -99,22 +115,14 @@ def preprocess(project_id, release):
     return release
 
 
-def get_release_date(project_id, release_name):
+def get_release_date_jira(version_id):
     """
-    Returns the date for an specific release. First, it looks on Git and then on JIRA.
-    :param project_id: JIRA project identifier.
-    :param release_name: Release name.
+    Returns the date for an specific release on the JIRA Database.
+    :param version_id: JIRA version identifier.
     :return: The date as a datetime.
     """
-    date_from_git = gjdata.get_tag_information(project_id, release_name)
 
-    # We are addressing the case where the release tag is present in one repository.
-    if date_from_git and len(date_from_git) == 1:
-        date_as_string = date_from_git[0][3]
-        result = dateutil.parser.parse(date_as_string)
-        return result
-
-    date_from_jira = jdata.get_version_by_name(project_id, release_name)
+    date_from_jira = jdata.get_version_by_id(version_id)
     if date_from_jira and date_from_jira[0][3]:
         date_as_timestamp = date_from_jira[0][3] / 1000
         result = datetime.datetime.fromtimestamp(date_as_timestamp, tz=tzlocal())
@@ -123,28 +131,98 @@ def get_release_date(project_id, release_name):
     return None
 
 
-def get_release_distance(project_id, one_release, other_release, unit="days"):
+def get_version_position_jira(project_id, version_name):
     """
-    Calculates the release distance between two releases.
-    :param project_id: JIRA's project identifier.
-    :param one_release: Release name.
-    :param other_release: Another release name.
+    Returns the position of the release in the list of sorted releases.
+    :param project_id: JIRA project identifier
+    :param version_name:  Version name.
+    :return: Version position.
+    """
+    all_versions = jdata.get_versions_by_project(project_id)
+    version_names = sorted([version[VERSION_NAME_INDEX] for version in all_versions])
+
+    return bisect(version_names, version_name)
+
+
+def get_version_position_git(project_id, tag_name):
+    """
+    Returns the position of the tag in the list of sorted tags.
+    :param project_id: JIRA project identifier
+    :param tag_name:  Version name.
+    :return: Tag position.
+    """
+    all_tags = gjdata.get_tags_by_project(project_id)
+    tag_name_index = 2
+    tag_names = sorted([tag[tag_name_index] for tag in all_tags])
+
+    return bisect(tag_names, tag_name)
+
+
+def get_release_distance_jira(project_id, one_release, other_release, unit="days"):
+    """
+    Calculates the release distance between two releases using information stored in JIRA.
+    :param project_id: JIRA Project Identifier.
+    :param one_release: Version information.
+    :param other_release: Another version information.
     :return: Distance between the two releases.
     """
     if not one_release or not other_release:
         return None
 
     if unit == "days":
-        one_release_date = get_release_date(project_id, one_release)
-        other_release_date = get_release_date(project_id, other_release)
+        one_release_value = get_release_date_jira(one_release[VERSION_ID_INDEX])
+        other_release_value = get_release_date_jira(other_release[VERSION_ID_INDEX])
 
-        if other_release_date and one_release_date:
-            difference = other_release_date - one_release_date
-            return difference.days
-    elif unit == "releases":
-        # TODO: Complete this method implementation
-        github_releases = []
-        jira_versions = []
+    if unit == "releases":
+        one_release_value = get_version_position_jira(project_id, one_release[VERSION_NAME_INDEX])
+        other_release_value = get_version_position_jira(project_id, other_release[VERSION_NAME_INDEX])
+
+    if other_release_value and one_release_value:
+        difference = other_release_value - one_release_value
+        return difference
+
+    return None
+
+
+def get_release_distance_git(project_id, one_release, other_release, unit="days"):
+    """
+    Calculates the release distance between two releases using information stored in Git.
+    :param project_id: JIRA Project Identifier.
+    :param one_release: Tag name.
+    :param other_release: Another tag name.
+    :return: Distance between the two releases.
+    """
+    if not one_release or not other_release:
+        return None
+
+    if unit == "days":
+        one_release_value = get_release_date_git(project_id, one_release)
+        other_release_value = get_release_date_git(project_id, other_release)
+
+    if unit == "releases":
+        one_release_value = get_version_position_git(project_id, one_release)
+        other_release_value = get_version_position_git(project_id, other_release)
+
+    if other_release_value and one_release_value:
+        difference = other_release_value - one_release_value
+        return difference
+
+    return None
+
+
+def get_release_date_git(project_id, release_name):
+    """
+    Returns the date for an specific tag on Git.
+    :param project_id: JIRA project identifier.
+    :param release_name: Tag name
+    :return: The date as a datetime.
+    """
+    date_from_git = gjdata.get_tag_information(project_id, release_name)
+
+    if date_from_git and len(date_from_git) == 1:
+        date_as_string = date_from_git[0][3]
+        result = dateutil.parser.parse(date_as_string)
+        return result
 
     return None
 
@@ -180,22 +258,22 @@ def consolidate_information(project_id, release_regex, jira_to_git_release):
     """
     Generetes a consolidated CSV report for the fix distance calculation.
     :param project_id: Project identifier in JIRA
+    :param release_regex: Regular expression for valid releases.
+    :param jira_to_git_release: A function to convert a JIRA release into a Git one.
     :return: A Dataframe with the consolidated information.
     """
     print "Generating consolidated file for project: ", project_id
     project_issues = jdata.get_project_issues(project_id)
 
     records = []
+    tags_alert = True
+
     for issue in project_issues:
         key = issue[KEY_INDEX]
         issue_id = issue[ISSUE_ID_INDEX]
         resolution = issue[RESNAME_INDEX]
         status = issue[STATUS_INDEX]
         priority = issue[PRIORNAME_INDEX]
-        create_timestamp = issue[CREATED_DATE]
-
-        # Apparently, the stored timestamp is in milliseconds
-        creation_date = datetime.datetime.fromtimestamp(create_timestamp / 1000, tz=tzlocal())
 
         affected_versions = jdata.get_affected_versions(issue_id)
         earliest_affected, latest_affected = get_first_last_version(affected_versions)
@@ -204,26 +282,42 @@ def consolidate_information(project_id, release_regex, jira_to_git_release):
 
         commits = gjdata.get_commits_by_issue(project_id, key)
         tags_per_comit = get_tags_for_commits(project_id, commits, release_regex=release_regex)
+        if len(tags_per_comit) > 0:
+            tags_alert = False
+
         earliest_tag = get_earliest_tag(tags_per_comit)
 
-        # if len(commits) > 0:
-        #     print 'earliest_affected ', earliest_affected, ' earliest_fix ', earliest_fix, ' earliest_tag ', earliest_tag
+        jira_time_distance = get_release_distance_jira(project_id, earliest_affected, earliest_fix, unit="days")
+        jira_distance = jira_time_distance.days if jira_time_distance else None
+        jira_distance_releases = get_release_distance_jira(project_id, earliest_affected, earliest_fix, unit="releases")
 
-        github_jira_distance = get_release_distance(project_id, earliest_fix, earliest_tag)
-        jira_distance = get_release_distance(project_id, earliest_affected, earliest_fix)
-        github_distance = get_release_distance(project_id, jira_to_git_release(earliest_affected), earliest_tag)
+        github_time_distance = get_release_distance_git(project_id, jira_to_git_release(earliest_affected),
+                                                        earliest_tag, unit="days")
+        github_distance = github_time_distance.days if github_time_distance else None
+        github_distance_releases = get_release_distance_git(project_id, jira_to_git_release(earliest_affected),
+                                                            earliest_tag, unit="releases")
 
-        # print "jira_distance ", earliest_affected, earliest_fix, jira_distance
-        # print "github_distance ", jira_to_git_release(earliest_affected), earliest_tag, github_distance
+        github_jira_distance = None
+        if jira_distance and github_distance:
+            github_jira_distance = jira_distance - github_distance
 
         fix_distance = get_fix_distance(jira_distance, github_distance)
+        fix_distance_releases = get_fix_distance(jira_distance_releases, github_distance_releases)
+
+        earliest_affected_name = earliest_affected[VERSION_NAME_INDEX] if earliest_affected  else None
+        latest_affected_name = latest_affected[VERSION_NAME_INDEX] if latest_affected else None
+        earliest_fix_name = earliest_fix[VERSION_NAME_INDEX] if earliest_fix else None
+        latest_fix_name = latest_fix[VERSION_NAME_INDEX] if latest_fix else None
 
         csv_record = (
-            key, resolution, status, priority, earliest_affected, latest_affected, earliest_fix, latest_fix,
-            len(commits), len(tags_per_comit),
-            earliest_tag, github_jira_distance, jira_distance, github_distance, fix_distance)
+            key, resolution, status, priority, earliest_affected_name, latest_affected_name, earliest_fix_name,
+            latest_fix_name, len(commits), len(tags_per_comit), earliest_tag, github_jira_distance, jira_distance,
+            github_distance, fix_distance, jira_distance_releases, github_distance_releases, fix_distance_releases)
         print "Analizing Issue " + key
         records.append(csv_record)
+
+    if tags_alert:
+        print "WARNING: No tags were found as valid release names for each of the commits."
 
     return write_consolidated_file(project_id, records)
 
@@ -262,7 +356,8 @@ def priority_analysis(project_id):
     """
     issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
 
-    distance_column = 'Fix distance'
+    # distance_column = 'Fix distance'
+    distance_column = "Fix Distance in Releases"
     resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Resolved'])]
     resolved_issues = issues_dataframe[issues_dataframe['Resolution'].isin(['Done', 'Fixed'])]
     resolved_issues = resolved_issues[~issues_dataframe[distance_column].isnull()]
@@ -276,13 +371,13 @@ def priority_analysis(project_id):
     resolved_issues[priority_column].value_counts(normalize=True).plot(kind='bar', ax=axes)
     axes.set_xlabel("Priority")
     axes.set_ylabel("% of issues")
-    axes.get_figure().savefig("Priority_Distribution_for_" + project_id + ".png")
+    axes.get_figure().savefig(".\\" + project_id + "\\Priority_Distribution_for_" + project_id + ".png")
 
     figure, axes = plt.subplots(1, 1, figsize=(10, 10))
     resolved_issues['Commits'].value_counts(normalize=True).sort_index().plot(kind='bar', ax=axes)
     axes.set_xlabel("Commits per issue")
     axes.set_ylabel("% of issues")
-    axes.get_figure().savefig("Commits_Distribution_for_" + project_id + ".png")
+    axes.get_figure().savefig(".\\" + project_id + "\\Commits_Distribution_for_" + project_id + ".png")
 
     priority_samples = []
 
@@ -304,18 +399,21 @@ def priority_analysis(project_id):
     axes.set_xticklabels(priority_list)
     axes.set_xlabel("Priorities")
     axes.set_ylabel("Fix distance")
-    axes.get_figure().savefig("All_Priorities_" + project_id + ".png")
+    axes.get_figure().savefig(".\\" + project_id + "\\All_Priorities_" + project_id + ".png")
 
 
 def main():
-    for config in loader.get_project_catalog():
-        project_id = config['project_id']
-        release_regex = config['release_regex']
-        jira_to_git_release = config['jira_to_git_release']
+    try:
+        for config in loader.get_project_catalog():
+            project_id = config['project_id']
+            release_regex = config['release_regex']
+            jira_to_git_release = config['jira_to_git_release']
 
-        consolidate_information(project_id, release_regex, jira_to_git_release)
-        priority_analysis(project_id)
-        # commit_analysis(repository_location, project_id, project_key)
+            consolidate_information(project_id, release_regex, jira_to_git_release)
+            priority_analysis(project_id)
+            # commit_analysis(repository_location, project_id, project_key)
+    finally:
+        winsound.Beep(2500, 1000)
 
 
 if __name__ == "__main__":

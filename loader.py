@@ -3,10 +3,13 @@ Module reads information from Git and JIRA and moves it to the Database
 """
 
 import git
+import winsound
 
 import jdata
 import gjdata
 import platform
+
+import relcounter
 
 WORD_BOUNDARY = r'\b'
 PATTERN_OPTION = "--grep="
@@ -40,7 +43,6 @@ def get_issues_and_commits(repositories, project_id):
 
         for repository in repositories:
             repository_location = REPO_LOCATION + repository
-            print "Mining repository: ", repository_location
             git_client = git.Git(repository_location)
 
             commit_shas = git_client.log(ALL_BRANCHES_OPTION, PATTERN_OPTION + WORD_BOUNDARY + key + WORD_BOUNDARY,
@@ -75,24 +77,27 @@ def get_tags_per_commit(project_id):
             print "No tags found for commit: ", commit_sha
 
 
-def get_tags_dates(project_id):
+def get_tags(project_id, repositories):
     """
-    Retrieves and stores the date of each tag.
-    :param project_id:
-    :return: None
+    Retrieves and stores tag information.
+    :param project_id: Project identifier.
+    :param repositories: List of repositories.
+    :return: None.
     """
-    tags = gjdata.get_tags_per_project(project_id)
     db_records = []
 
-    for tag_name, repository in tags:
-        print "tag_name ", tag_name, " repository ", repository
-
+    for repository in repositories:
         repository_location = REPO_LOCATION + repository
-        git_client = git.Git(repository_location)
 
-        tag_date = git_client.log(HEAD_OPTION, DATE_FORMAT_OPTION, tag_name)
-        print "Date for tag ", tag_name, " is ", tag_date
-        db_records.append((project_id, repository, tag_name, tag_date))
+        git_client = git.Git(repository_location)
+        all_tags = git_client.tag().split("\n")
+
+        for tag_name in all_tags:
+            print "tag_name ", tag_name, " repository ", repository
+            tag_date = git_client.log(HEAD_OPTION, DATE_FORMAT_OPTION, tag_name)
+
+            print "Date for tag ", tag_name, " is ", tag_date
+            db_records.append((project_id, repository, tag_name, tag_date))
 
     print "Updating ", len(db_records), " tag dates for project ", project_id
     gjdata.insert_git_tags(db_records)
@@ -137,27 +142,93 @@ def get_stats_per_commit(project_id):
     gjdata.insert_stats_per_commit(db_records)
 
 
+# TODO Project configuration should be in its own module.
+def ofbiz_release_transform(release):
+    release_number = release
+    if release.startswith("Release Branch"):
+        release_number = release[len("Release Branch") + 1:]
+
+    return "REL-" + release_number
+
+
 def get_project_catalog():
     """
     Returns the configuration for each project analyzed.
     :return: List of dicts.
     """
-    return [{'project_key': "CLOUDSTACK",
-             'project_id': "12313920",
-             'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
-             'jira_to_git_release': lambda release: release,
-             'repositories': ["cloudstack"]}]
+    return [
+        # Standard project. Working as expected
+        # {'project_key': "CLOUDSTACK",
+        #  'project_id': "12313920",
+        #  'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
+        #  'jira_to_git_release': lambda release: release,
+        #  'repositories': ["cloudstack"]}
+
+        # Works fine, but results are not the one expected.
+        # {'project_key': "OPENJPA",
+        #  'project_id': "12310351",
+        #  'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
+        #  'jira_to_git_release': lambda release: release,
+        #  'repositories': ["openjpa"]},
+
+        # Works fine, and looking good :).
+        # {'project_key': "MAHOUT",
+        #  'project_id': "12310751",
+        #  'release_regex': r"^mahout-(\d+\.)?(\d+\.)?(\*|\d+)$",
+        #  'jira_to_git_release': lambda release: release,
+        #  'repositories': ["mahout"]},
+
+        # This is also looking good :)
+        {'project_key': "SPARK",
+         'project_id': "12315420",
+         'release_regex': r"^v(\d+\.)?(\d+\.)?(\*|\d+)$",
+         # TODO I don't like that dependency ...
+         'jira_to_git_release': lambda release: "v" + release[relcounter.VERSION_NAME_INDEX] if release else None,
+         'repositories': ["spark"]}
+
+        # Not bad. We see two differentiated means.
+        # {'project_key': "KYLIN",
+        #  'project_id': "12316121",
+        #  'release_regex': r"^(kylin-|v)(\d+\.)?(\d+\.)?(\*|\d+)$",
+        #  'jira_to_git_release': lambda release: release,
+        #  'repositories': ["kylin"]}
+
+        # The affected version data is way too noisy
+        # {'project_key': "OFBIZ",
+        #  'project_id': "12310500",
+        #  'release_regex': r"^REL-(\d+\.)?(\d+\.)?(\*|\d+)$",
+        #  'jira_to_git_release': ofbiz_release_transform,
+        #  'repositories': ["ofbiz"]},
+
+        # Results are weird. It seems to few release to account,
+        # {'project_key': "ISIS",
+        #  'project_id': "12311171",
+        #  'release_regex': r"^rel/isis-(\d+\.)?(\d+\.)?(\*|\d+)$",
+        #  'jira_to_git_release': lambda jira_release: jira_release,
+        #  'repositories': ["isis"]},
+
+        # The tag names need wawy more analysis!
+        # {'project_key': "PHOENIX",
+        #  'project_id': "12315120",
+        #  'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
+        #  'jira_to_git_release': lambda release: release,
+        #  'repositories': ["openjpa"]},
+
+    ]
 
 
 def main():
-    for config in get_project_catalog():
-        repositories = config['repositories']
-        project_id = config['project_id']
+    try:
+        for config in get_project_catalog():
+            repositories = config['repositories']
+            project_id = config['project_id']
 
-        # get_issues_and_commits(repositories, project_id)
-        # get_tags_per_commit(project_id)
-        # get_tags_dates(project_id)
-        get_stats_per_commit(project_id)
+            get_issues_and_commits(repositories, project_id)
+            get_tags_per_commit(project_id)
+            get_tags(project_id, repositories)
+            # get_stats_per_commit(project_id)
+    finally:
+        winsound.Beep(2500, 1000)
 
 
 if __name__ == "__main__":

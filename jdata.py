@@ -12,6 +12,16 @@ def get_issue_by_key(key):
     return dbutils.execute_query(issue_sql, (key,), DATABASE_FILE)
 
 
+def get_versions_by_project(project_id):
+    """
+    Return version information by project id.
+    :param version_id: JIRA project identifier.
+    :return: Tuple with version information.
+    """
+    version_sql = "SELECT * FROM Version WHERE projectId=?"
+    return dbutils.execute_query(version_sql, (project_id,), DATABASE_FILE)
+
+
 def get_version_by_name(project_id, version_name):
     """
     Return version information by version name.
@@ -21,6 +31,16 @@ def get_version_by_name(project_id, version_name):
     """
     version_sql = "SELECT * FROM Version WHERE projectId=? AND name =?"
     return dbutils.execute_query(version_sql, (project_id, version_name), DATABASE_FILE)
+
+
+def get_version_by_id(version_id):
+    """
+    Return version information by version id.
+    :param version_id: JIRA version identifier.
+    :return: Tuple with version information.
+    """
+    version_sql = "SELECT * FROM Version WHERE id=?"
+    return dbutils.execute_query(version_sql, (version_id,), DATABASE_FILE)
 
 
 def get_affected_versions(issue_id):
