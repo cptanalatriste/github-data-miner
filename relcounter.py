@@ -16,7 +16,6 @@ import gjdata
 import gminer
 import pandas as pd
 import matplotlib.pyplot as plt
-import pprint
 import dateutil.parser
 import datetime
 
@@ -322,18 +321,23 @@ def consolidate_information(project_id, release_regex, jira_to_git_release):
     return write_consolidated_file(project_id, records)
 
 
-def commit_analysis(repository_location, project_id, project_key):
+def commit_analysis(repositories, project_id, project_key):
     print "Analizing commits for project ", project_id
-    git_client = git.Git(repository_location)
 
-    log_lines = git_client.log(ALL_BRANCHES_OPTION, ONE_LINE_OPTION).splitlines()
-    total_commits = len(log_lines)
+    total_commits = 0
+    with_jira_reference = 0
+    for repository in repositories:
+        # TODO I don't like this dependency either ...
+        repository_location = loader.REPO_LOCATION + repository
 
-    messages = [log_line.partition(' ')[2] for log_line in log_lines]
-    with_jira_reference = sum(1 for message in messages if project_key in message) / float(total_commits)
-    non_jira_commits = [message for message in messages if project_key not in message]
+        git_client = git.Git(repository_location)
 
-    print "non_jira_commits ", pprint.pprint(non_jira_commits)
+        log_lines = git_client.log(ALL_BRANCHES_OPTION, ONE_LINE_OPTION).splitlines()
+        total_commits += len(log_lines)
+
+        messages = [log_line.partition(' ')[2] for log_line in log_lines]
+        with_jira_reference += sum(1 for message in messages if project_key in message) / float(total_commits)
+
     print "Total commits: ", total_commits
     print "Commits with project key: ", with_jira_reference
 
@@ -344,39 +348,46 @@ def commit_analysis(repository_location, project_id, project_key):
     figure, axes = plt.subplots(1, 1, figsize=(10, 10))
 
     patches, texts = plt.pie(sizes)
+    axes.set_title(
+        "Git commit messages containing JIRA key: " + str(total_commits) + " commits for Project " + project_key)
     plt.legend(patches, labels, loc="best")
-    plt.savefig("Commits_with_JIRA_key_for_" + project_id + ".png")
+    plt.savefig(".\\" + project_id + "\\Commits_with_JIRA_key_for_" + project_id + ".png")
 
 
-def priority_analysis(project_id):
+def priority_analysis(project_key, project_id, resolved_issues):
     """
     Generates charts regarding the relationship between priority and fix distance.
     :param project_id: Project identifier.
+    :param resolved_issues: Dataframe with project issues.
     :return: None.
     """
-    issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
 
     # distance_column = 'Fix distance'
     distance_column = "Fix Distance in Releases"
-    resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Resolved'])]
-    resolved_issues = issues_dataframe[issues_dataframe['Resolution'].isin(['Done', 'Fixed'])]
-    resolved_issues = resolved_issues[~issues_dataframe[distance_column].isnull()]
-
     priority_list = ['Blocker', 'Critical', 'Major', 'Minor', 'Trivial']
 
     priority_column = 'Priority'
-    print "Generating histograms for project ", project_id
+    print "Generating histograms for project ", project_key
+
+    priority_label = "Priority"
+    issues_percentage_label = "% of issues"
+    releases_label = "Number of releases"
+    fix_distance_label = "Distance between affected release and fix release: "
+    issues_in_project_label = " Issues in Project "
 
     figure, axes = plt.subplots(1, 1, figsize=(10, 10))
     resolved_issues[priority_column].value_counts(normalize=True).plot(kind='bar', ax=axes)
-    axes.set_xlabel("Priority")
-    axes.set_ylabel("% of issues")
+    issues = str(len(resolved_issues.index))
+    axes.set_xlabel(priority_label)
+    axes.set_ylabel(issues_percentage_label)
+    axes.set_title("Priority Distribution for " + issues + issues_in_project_label + project_key)
     axes.get_figure().savefig(".\\" + project_id + "\\Priority_Distribution_for_" + project_id + ".png")
 
     figure, axes = plt.subplots(1, 1, figsize=(10, 10))
     resolved_issues['Commits'].value_counts(normalize=True).sort_index().plot(kind='bar', ax=axes)
     axes.set_xlabel("Commits per issue")
-    axes.set_ylabel("% of issues")
+    axes.set_ylabel(issues_percentage_label)
+    axes.set_title("Number of Git Commits per JIRA issue: " + issues + issues_in_project_label + project_key)
     axes.get_figure().savefig(".\\" + project_id + "\\Commits_Distribution_for_" + project_id + ".png")
 
     priority_samples = []
@@ -385,21 +396,45 @@ def priority_analysis(project_id):
         priority_issues = resolved_issues[resolved_issues[priority_column] == priority_value]
 
         figure, axes = plt.subplots(1, 1, figsize=(10, 10))
-        priority_issues[distance_column].hist(ax=axes)
-        axes.set_xlabel("Fix distance")
-        axes.set_ylabel("% of " + str(priority_value) + " issues")
-        axes.get_figure().savefig("Priority_" + priority_value + "_" + project_id + ".png")
+        priority_issues[distance_column].hist(ax=axes, normed=True)
+
+        issues = str(len(priority_issues.index))
+        axes.set_xlabel(releases_label)
+        axes.set_ylabel(issues_percentage_label)
+        axes.set_title(fix_distance_label + issues + " " + priority_value +
+                       issues_in_project_label + project_key)
+        axes.get_figure().savefig(".\\" + project_id + "\\Priority_" + priority_value + "_" + project_id + ".png")
 
         priority_samples.append(priority_issues[distance_column])
 
     print "Generating consolidated priorities for project " + project_id
+    issues = str(len(resolved_issues.index))
 
     figure, axes = plt.subplots(1, 1, figsize=(10, 10))
     axes.boxplot(priority_samples)
     axes.set_xticklabels(priority_list)
-    axes.set_xlabel("Priorities")
-    axes.set_ylabel("Fix distance")
+    axes.set_xlabel(priority_label)
+    axes.set_ylabel(releases_label)
+    axes.set_title(fix_distance_label + issues + issues_in_project_label + project_key)
     axes.get_figure().savefig(".\\" + project_id + "\\All_Priorities_" + project_id + ".png")
+
+
+def get_project_dataframe(project_id):
+    """
+    Returns a dataframe with the issues valid for analysis.
+    :param project_id: JIRA's project identifier.
+    :return: Dataframe
+    """
+    issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
+
+    # distance_column = 'Fix distance'
+    distance_column = "Fix Distance in Releases"
+
+    resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Implemented', 'Resolved'])]
+    resolved_issues = issues_dataframe[issues_dataframe['Resolution'].isin(['Done', 'Fixed'])]
+    resolved_issues = resolved_issues[~issues_dataframe[distance_column].isnull()]
+
+    return resolved_issues
 
 
 def main():
@@ -408,12 +443,17 @@ def main():
             project_id = config['project_id']
             release_regex = config['release_regex']
             jira_to_git_release = config['jira_to_git_release']
+            repositories = config['repositories']
+            project_key = config['project_key']
 
-            consolidate_information(project_id, release_regex, jira_to_git_release)
-            priority_analysis(project_id)
-            # commit_analysis(repository_location, project_id, project_key)
+            # consolidate_information(project_id, release_regex, jira_to_git_release)
+
+            project_dataframe = get_project_dataframe(project_id)
+            priority_analysis(project_key, project_id, project_dataframe)
+            commit_analysis(repositories, project_id, project_key)
     finally:
-        winsound.Beep(2500, 1000)
+        # winsound.Beep(2500, 1000)
+        pass
 
 
 if __name__ == "__main__":
