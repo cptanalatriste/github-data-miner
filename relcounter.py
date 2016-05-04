@@ -260,18 +260,18 @@ def main():
 
             consolidate_information(project_id, release_regex, jira_to_git_release)
 
-            # project_dataframe = get_project_dataframe(project_id)
-            # all_dataframes.append(project_dataframe)
-            # priority_analysis(project_key, project_id, project_dataframe, "JIRA Distance in Releases", "JIRA")
-            # priority_analysis(project_key, project_id, project_dataframe, "GitHub Distance in Releases", "GITHUB")
-            # priority_analysis(project_key, project_id, project_dataframe, "Fix Distance in Releases", "BOTH")
-            #
-            # commit_analysis(repositories, project_id, project_key)
+            project_dataframe = get_project_dataframe(project_id)
+            all_dataframes.append(project_dataframe)
+            priority_analysis(project_key, project_id, project_dataframe, "JIRA Distance in Releases", "JIRA")
+            priority_analysis(project_key, project_id, project_dataframe, "GitHub Distance in Releases", "GITHUB")
+            priority_analysis(project_key, project_id, project_dataframe, "Fix Distance in Releases", "BOTH")
 
-            # merged_dataframe = pd.concat(all_dataframes)
-            # priority_analysis("ALL", "", merged_dataframe, "JIRA Distance in Releases", "JIRA")
-            # priority_analysis("ALL", "", merged_dataframe, "GitHub Distance in Releases", "GITHUB")
-            # priority_analysis("ALL", "", merged_dataframe, "Fix Distance in Releases", "BOTH")
+            commit_analysis(repositories, project_id, project_key)
+
+        merged_dataframe = pd.concat(all_dataframes)
+        priority_analysis("ALL", "", merged_dataframe, "JIRA Distance in Releases", "JIRA")
+        priority_analysis("ALL", "", merged_dataframe, "GitHub Distance in Releases", "GITHUB")
+        priority_analysis("ALL", "", merged_dataframe, "Fix Distance in Releases", "BOTH")
     finally:
         winsound.Beep(2500, 1000)
         pass
