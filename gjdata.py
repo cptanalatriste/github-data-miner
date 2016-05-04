@@ -109,7 +109,12 @@ def get_commits_by_issue(project_id, key):
 
 
 def get_tags_by_commit_sha(project_id, commit_sha):
-    tag_sql = "SELECT * FROM commit_tag WHERE project_id=? AND commit_sha=?"
+    tag_sql = "SELECT gt.project_id, gt.repository, ct.commit_sha, gt.tag_name, gt.tag_date " \
+              "FROM commit_tag ct, git_tag gt WHERE ct.project_id=? AND ct.commit_sha=? " \
+              "AND ct.project_id = gt.project_id AND " \
+              "ct.repository = gt.repository " \
+              "AND ct.tag_name = gt.tag_name"
+
     return dbutils.execute_query(tag_sql, (project_id, commit_sha), DATABASE_FILE)
 
 
