@@ -15,7 +15,7 @@ def get_issue_by_key(key):
 def get_versions_by_project(project_id):
     """
     Return version information by project id.
-    :param version_id: JIRA project identifier.
+    :param project_id: JIRA project identifier.
     :return: Tuple with version information.
     """
     version_sql = "SELECT * FROM Version WHERE projectId=?"

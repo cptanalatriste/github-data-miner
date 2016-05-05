@@ -1,7 +1,9 @@
 """
 Module for the calculation of the releases to fix field.
 """
-from bisect import bisect
+from dateutil.tz import tzlocal
+
+import datetime
 
 import os
 import git
@@ -37,30 +39,6 @@ def get_csv_file_name(project_id):
     return filename
 
 
-def write_consolidated_file(project_id, records):
-    """
-    Creates a Dataframe with the consolidated fix distance information and writes it to a CSV file.
-    :param project_id: Project identifier in JIRA.
-    :param records: Records to be included in the CSV file.
-    :return: The created Dataframe.
-    """
-    column_header = ["Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
-                     "Earliest Fix Version", "Latest Fix Version", "Commits",
-                     "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance",
-                     "Fix distance", "JIRA Distance in Releases", "GitHub Distance in Releases",
-                     "Fix Distance in Releases"]
-    issues_dataframe = DataFrame(records, columns=column_header)
-
-    print "Writing " + str(len(records)) + " issues in " + get_csv_file_name(project_id)
-
-    file_name = get_csv_file_name(project_id)
-    if not os.path.exists(os.path.dirname(file_name)):
-        os.makedirs(os.path.dirname(file_name))
-    issues_dataframe.to_csv(file_name)
-
-    return issues_dataframe
-
-
 def preprocess(project_id, release):
     # TODO(cgavidia): This looks awful. Refactor later.
     if project_id == "12313920":
@@ -73,13 +51,22 @@ def preprocess(project_id, release):
 
 
 def get_fix_distance(jira_distance, github_distance):
+    """
+    Determines the criteria for selecting the information from Git or JIRA
+    :param jira_distance:Distance from JIRA.
+    :param github_distance: Distance from Git
+    :return: Value for analysis.
+    """
     if github_distance is not None:
         return github_distance
 
-    return jira_distance
+    if jira_distance >= 0:
+        return jira_distance
+
+    return None
 
 
-def consolidate_information(project_id, release_regex, jira_to_git_release):
+def consolidate_information(project_id, release_regex):
     """
     Generetes a consolidated CSV report for the fix distance calculation.
     :param project_id: Project identifier in JIRA
@@ -99,14 +86,17 @@ def consolidate_information(project_id, release_regex, jira_to_git_release):
         resolution = issue[RESNAME_INDEX]
         status = issue[STATUS_INDEX]
         priority = issue[PRIORNAME_INDEX]
+        created_date = issue[CREATED_DATE]
 
-        earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance, jira_distance_releases = jiracounter.get_JIRA_metrics(
-            issue_id, project_id)
+        created_date_parsed = datetime.datetime.fromtimestamp(created_date / 1000, tz=tzlocal())
+
+        # TODO This screams a refactor
+        earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance, jira_distance_releases, closest_release_jira = jiracounter.get_JIRA_metrics(
+            issue_id, project_id, created_date)
         earliest_affected_name = earliest_affected[jiracounter.VERSION_NAME_INDEX] if earliest_affected  else None
 
-        earliest_affected_git = jira_to_git_release(earliest_affected)
-        earliest_tag, github_distance, github_distance_releases, commits, tags_per_comit = gitcounter.get_github_metrics(
-            project_id, key, release_regex, earliest_affected_git)
+        earliest_tag, github_distance, github_distance_releases, commits, tags_per_comit, closest_tag = gitcounter.get_github_metrics(
+            project_id, key, release_regex, created_date_parsed)
 
         github_jira_distance = None
         if jira_distance and github_distance:
@@ -118,7 +108,8 @@ def consolidate_information(project_id, release_regex, jira_to_git_release):
         csv_record = (
             key, resolution, status, priority, earliest_affected_name, latest_affected_name, earliest_fix_name,
             latest_fix_name, commits, tags_per_comit, earliest_tag, github_jira_distance, jira_distance,
-            github_distance, fix_distance, jira_distance_releases, github_distance_releases, fix_distance_releases)
+            github_distance, fix_distance, jira_distance_releases, github_distance_releases, fix_distance_releases,
+            created_date_parsed, closest_release_jira, closest_tag)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -126,6 +117,30 @@ def consolidate_information(project_id, release_regex, jira_to_git_release):
         print "WARNING: No tags were found as valid release names for each of the commits."
 
     return write_consolidated_file(project_id, records)
+
+
+def write_consolidated_file(project_id, records):
+    """
+    Creates a Dataframe with the consolidated fix distance information and writes it to a CSV file.
+    :param project_id: Project identifier in JIRA.
+    :param records: Records to be included in the CSV file.
+    :return: The created Dataframe.
+    """
+    column_header = ["Issue Key", "Resolution", "Status", "Priority", "Earliest Version", "Latest Version",
+                     "Earliest Fix Version", "Latest Fix Version", "Commits",
+                     "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance",
+                     "Fix distance", "JIRA Distance in Releases", "GitHub Distance in Releases",
+                     "Fix Distance in Releases", "Creation Date", "Closest Release JIRA", "Closest Tag Git"]
+    issues_dataframe = DataFrame(records, columns=column_header)
+
+    print "Writing " + str(len(records)) + " issues in " + get_csv_file_name(project_id)
+
+    file_name = get_csv_file_name(project_id)
+    if not os.path.exists(os.path.dirname(file_name)):
+        os.makedirs(os.path.dirname(file_name))
+    issues_dataframe.to_csv(file_name)
+
+    return issues_dataframe
 
 
 def commit_analysis(repositories, project_id, project_key):
@@ -164,8 +179,9 @@ def commit_analysis(repositories, project_id, project_key):
 def priority_analysis(project_key, project_id, issues_dataframe, distance_column, file_prefix=""):
     """
     Generates charts regarding the relationship between priority and fix distance.
+    :param project_key: Project key.
     :param project_id: Project identifier.
-    :param resolved_issues: Dataframe with project issues.
+    :param issues_dataframe: Dataframe with project issues.
     :param distance_column: Dataframe series that contains the distance information.
     :param file_prefix: Prefix for the generated files.
     :return: None.
@@ -239,9 +255,6 @@ def get_project_dataframe(project_id):
     """
     issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
 
-    # distance_column = 'Fix distance'
-    distance_column = "Fix Distance in Releases"
-
     resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Implemented', 'Resolved'])]
     resolved_issues = issues_dataframe[issues_dataframe['Resolution'].isin(['Done', 'Fixed'])]
 
@@ -254,11 +267,10 @@ def main():
         for config in loader.get_project_catalog():
             project_id = config['project_id']
             release_regex = config['release_regex']
-            jira_to_git_release = config['jira_to_git_release']
             repositories = config['repositories']
             project_key = config['project_key']
 
-            consolidate_information(project_id, release_regex, jira_to_git_release)
+            consolidate_information(project_id, release_regex)
 
             project_dataframe = get_project_dataframe(project_id)
             all_dataframes.append(project_dataframe)

@@ -156,13 +156,34 @@ def extract_version_number(release_name):
             return found
 
 
-def get_github_metrics(project_id, key, release_regex, earliest_affected_git):
+def get_closest_tag(created_date_parsed, project_id, release_regex):
+    """
+    Returns the closest release to an specific date.
+    :param created_date_parsed: Specific date.
+    :param project_id: Project identifier.
+    :param release_regex: Valid release regular expression.
+    :return: Closest tag.
+    """
+    all_tags = gjdata.get_tags_by_project(project_id)
+    all_tags_sorted = sorted(all_tags, key=lambda tag: dateutil.parser.parse(tag[TAG_DATE_INDEX]))
+
+    tag_name_index = 2
+    all_tags_filtered = [tag for tag in all_tags_sorted if re.match(release_regex, tag[tag_name_index])]
+
+    for tag in all_tags_filtered:
+        if dateutil.parser.parse(tag[TAG_DATE_INDEX]) > created_date_parsed:
+            return tag[tag_name_index]
+
+    return None
+
+
+def get_github_metrics(project_id, key, release_regex, created_date_parsed):
     """
     Return the information extracted from GitHub
     :param project_id: JIRA's project identifier.
     :param key: JIRA's Issue Key.
     :param release_regex: Regex for valid release names,
-    :param earliest_affected_git: The earliest affected tag in git format.
+    :param created_date: Creation date of the issue,
     :return: Earliest release tag, days between affected and fix tag, releases between affected and fix tag, number of commits for the issue,
     commits with release tags.
     """
@@ -170,10 +191,11 @@ def get_github_metrics(project_id, key, release_regex, earliest_affected_git):
     tags_per_comit = get_tags_for_commits(project_id, commits, release_regex=release_regex)
 
     earliest_tag = get_earliest_tag(tags_per_comit)
+    closest_tag = get_closest_tag(created_date_parsed, project_id, release_regex)
 
-    github_time_distance = get_release_distance_git(project_id, earliest_affected_git,
+    github_time_distance = get_release_distance_git(project_id, closest_tag,
                                                     earliest_tag, release_regex, unit="days")
     github_distance = github_time_distance.days if github_time_distance else None
-    github_distance_releases = get_release_distance_git(project_id, earliest_affected_git,
+    github_distance_releases = get_release_distance_git(project_id, closest_tag,
                                                         earliest_tag, release_regex, unit="releases")
-    return earliest_tag, github_distance, github_distance_releases, len(commits), len(tags_per_comit)
+    return earliest_tag, github_distance, github_distance_releases, len(commits), len(tags_per_comit), closest_tag

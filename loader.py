@@ -162,37 +162,30 @@ def get_project_catalog():
         {'project_key': "CLOUDSTACK",
          'project_id': "12313920",
          'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'jira_to_git_release': lambda release: release[jiracounter.VERSION_NAME_INDEX] if release else None,
          'repositories': ["cloudstack"]},
 
         # Works fine, but results are not the one expected.
         {'project_key': "OPENJPA",
          'project_id': "12310351",
          'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'jira_to_git_release': lambda release: release[jiracounter.VERSION_NAME_INDEX] if release else None,
          'repositories': ["openjpa"]},
 
         # This is also looking good :)
         {'project_key': "SPARK",
          'project_id': "12315420",
          'release_regex': r"^v(\d+\.)?(\d+\.)?(\*|\d+)$",
-         # TODO I don't like that dependency ...
-         'jira_to_git_release': lambda release: "v" + release[jiracounter.VERSION_NAME_INDEX] if release else None,
          'repositories': ["spark"]},
 
         # Works fine, and looking good on time basis. However, the Git commit information is buggy: JIRA seems better.
         {'project_key': "MAHOUT",
          'project_id': "12310751",
          'release_regex': r"^mahout-(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'jira_to_git_release': lambda release: "mahout-" + release[jiracounter.VERSION_NAME_INDEX] if release else None,
          'repositories': ["mahout"]},
 
         # Not bad. We see two differentiated means. Too few releases :S.
         {'project_key': "KYLIN",
          'project_id': "12316121",
          'release_regex': r"^(kylin-|v)(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'jira_to_git_release': lambda release: "kylin-" + release[jiracounter.VERSION_NAME_INDEX][
-                                                           1:] if release else None,
          'repositories': ["kylin"]}
 
         # The affected version data is way too noisy

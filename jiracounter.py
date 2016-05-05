@@ -80,11 +80,29 @@ def get_first_last_version(versions):
     return earliest_version, latest_version
 
 
-def get_JIRA_metrics(issue_id, project_id):
+def get_closest_release(created_date, project_id):
+    """
+    Returns the release that is closer to a specific point in time.
+    :param created_date: Date as timestamp.
+    :param project_id: JIRA's Project Identifier.
+    :return: Version tuple
+    """
+    all_versions = jdata.get_versions_by_project(project_id)
+    all_versions_sorted = sorted(all_versions, key=lambda version: version[VERSION_DATE_INDEX])
+
+    for version in all_versions_sorted:
+        if version[VERSION_DATE_INDEX] > created_date:
+            return version
+
+    return None
+
+
+def get_JIRA_metrics(issue_id, project_id, created_date):
     """
     Gathers issue inflation information from the JIRA database.
     :param issue_id: JIRA issue identifier.
     :param project_id: JIRA project identifier.
+    :param created_date: Timestamp were the JIRA issue was created..
     :return: Earliest and latest affected versions, Earliest and latest fix versions, distance between earliest and
     latest affected versions in days, distance between earliest and latest affected versions in releases.
     """
@@ -93,13 +111,17 @@ def get_JIRA_metrics(issue_id, project_id):
     earliest_fix_name = earliest_fix[VERSION_NAME_INDEX] if earliest_fix else None
     latest_fix_name = latest_fix[VERSION_NAME_INDEX] if latest_fix else None
 
+
     affected_versions = jdata.get_affected_versions(issue_id)
     earliest_affected, latest_affected = get_first_last_version(affected_versions)
     latest_affected_name = latest_affected[VERSION_NAME_INDEX] if latest_affected else None
 
-    jira_time_distance = get_release_distance_jira(project_id, earliest_affected, earliest_fix, unit="days")
+    closest_release = get_closest_release(created_date, project_id)
+
+    jira_time_distance = get_release_distance_jira(project_id, closest_release, earliest_fix, unit="days")
     jira_distance = jira_time_distance.days if jira_time_distance else None
-    jira_distance_releases = get_release_distance_jira(project_id, earliest_affected, earliest_fix, unit="releases")
+    jira_distance_releases = get_release_distance_jira(project_id, closest_release, earliest_fix, unit="releases")
+    closest_release_name = closest_release[VERSION_NAME_INDEX] if closest_release else None
 
     return earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance, \
-           jira_distance_releases
+           jira_distance_releases, closest_release_name
