@@ -257,6 +257,7 @@ def get_project_dataframe(project_id):
 
     resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Implemented', 'Resolved'])]
     resolved_issues = issues_dataframe[issues_dataframe['Resolution'].isin(['Done', 'Fixed'])]
+    resolved_issues = issues_dataframe[issues_dataframe['Commits'] > 0]
 
     return resolved_issues
 
