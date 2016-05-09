@@ -5,6 +5,7 @@ Module reads information from Git and JIRA and moves it to the Database
 import git
 import winsound
 
+import catalog
 import jdata
 import gjdata
 import platform
@@ -143,78 +144,9 @@ def get_stats_per_commit(project_id):
     gjdata.insert_stats_per_commit(db_records)
 
 
-# TODO Project configuration should be in its own module.
-def ofbiz_release_transform(release):
-    release_number = release
-    if release.startswith("Release Branch"):
-        release_number = release[len("Release Branch") + 1:]
-
-    return "REL-" + release_number
-
-
-def get_project_catalog():
-    """
-    Returns the configuration for each project analyzed.
-    :return: List of dicts.
-    """
-    return [
-        # Standard project. Working as expected
-        {'project_key': "CLOUDSTACK",
-         'project_id': "12313920",
-         'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'repositories': ["cloudstack"]},
-
-        # Works fine, but results are not the one expected.
-        {'project_key': "OPENJPA",
-         'project_id': "12310351",
-         'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'repositories': ["openjpa"]},
-
-        # This is also looking good :)
-        {'project_key': "SPARK",
-         'project_id': "12315420",
-         'release_regex': r"^v(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'repositories': ["spark"]},
-
-        # Works fine, and looking good on time basis. However, the Git commit information is buggy: JIRA seems better.
-        {'project_key': "MAHOUT",
-         'project_id': "12310751",
-         'release_regex': r"^mahout-(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'repositories': ["mahout"]},
-
-        # Not bad. We see two differentiated means. Too few releases :S.
-        {'project_key': "KYLIN",
-         'project_id': "12316121",
-         'release_regex': r"^(kylin-|v)(\d+\.)?(\d+\.)?(\*|\d+)$",
-         'repositories': ["kylin"]}
-
-        # The affected version data is way too noisy
-        # {'project_key': "OFBIZ",
-        #  'project_id': "12310500",
-        #  'release_regex': r"^REL-(\d+\.)?(\d+\.)?(\*|\d+)$",
-        #  'jira_to_git_release': ofbiz_release_transform,
-        #  'repositories': ["ofbiz"]},
-
-        # Results are weird. It seems to few release to account,
-        # {'project_key': "ISIS",
-        #  'project_id': "12311171",
-        #  'release_regex': r"^rel/isis-(\d+\.)?(\d+\.)?(\*|\d+)$",
-        #  'jira_to_git_release': lambda jira_release: jira_release,
-        #  'repositories': ["isis"]},
-
-        # The tag names need wawy more analysis!
-        # {'project_key': "PHOENIX",
-        #  'project_id': "12315120",
-        #  'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
-        #  'jira_to_git_release': lambda release: release,
-        #  'repositories': ["openjpa"]},
-
-    ]
-
-
 def main():
     try:
-        for config in get_project_catalog():
+        for config in catalog.get_project_catalog():
             repositories = config['repositories']
             project_id = config['project_id']
 

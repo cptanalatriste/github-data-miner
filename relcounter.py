@@ -9,6 +9,7 @@ import os
 import git
 import winsound
 
+import catalog
 import jiracounter
 import gitcounter
 import loader
@@ -196,11 +197,11 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
     priority_label = "Priority"
     issues_percentage_label = "% of issues"
     releases_label = "Number of releases"
-    fix_distance_label = "Distance between affected release and fix release: "
+    fix_distance_label = "Distance between the closest release and fix release: "
     issues_in_project_label = " Issues in Project "
 
     figure, axes = plt.subplots(1, 1, figsize=(10, 10))
-    resolved_issues[priority_column].value_counts(normalize=True).plot(kind='bar', ax=axes)
+    resolved_issues[priority_column].value_counts(normalize=True, sort=False).plot(kind='bar', ax=axes)
     issues = str(len(resolved_issues.index))
     axes.set_xlabel(priority_label)
     axes.set_ylabel(issues_percentage_label)
@@ -222,7 +223,7 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
         priority_issues = resolved_issues[resolved_issues[priority_column] == priority_value]
 
         figure, axes = plt.subplots(1, 1, figsize=(10, 10))
-        priority_issues[distance_column].hist(ax=axes, normed=True)
+        priority_issues[distance_column].value_counts(normalize=True, sort=False).plot(ax=axes, kind='bar')
 
         issues = str(len(priority_issues.index))
         axes.set_xlabel(releases_label)
@@ -265,26 +266,30 @@ def get_project_dataframe(project_id):
 def main():
     try:
         all_dataframes = []
-        for config in loader.get_project_catalog():
-            project_id = config['project_id']
-            release_regex = config['release_regex']
-            repositories = config['repositories']
-            project_key = config['project_key']
 
-            consolidate_information(project_id, release_regex)
+        for config in catalog.get_project_catalog():
+            if config:
+                project_id = config['project_id']
+                release_regex = config['release_regex']
+                repositories = config['repositories']
+                project_key = config['project_key']
 
-            project_dataframe = get_project_dataframe(project_id)
-            all_dataframes.append(project_dataframe)
-            priority_analysis(project_key, project_id, project_dataframe, "JIRA Distance in Releases", "JIRA")
-            priority_analysis(project_key, project_id, project_dataframe, "GitHub Distance in Releases", "GITHUB")
-            priority_analysis(project_key, project_id, project_dataframe, "Fix Distance in Releases", "BOTH")
+                # consolidate_information(project_id, release_regex)
+                commit_analysis(repositories, project_id, project_key)
 
-            commit_analysis(repositories, project_id, project_key)
+                project_dataframe = get_project_dataframe(project_id)
+                all_dataframes.append(project_dataframe)
+                priority_analysis(project_key, project_id, project_dataframe, "JIRA Distance in Releases", "JIRA")
+                priority_analysis(project_key, project_id, project_dataframe, "GitHub Distance in Releases", "GITHUB")
+                priority_analysis(project_key, project_id, project_dataframe, "Fix Distance in Releases", "BOTH")
 
         merged_dataframe = pd.concat(all_dataframes)
         priority_analysis("ALL", "", merged_dataframe, "JIRA Distance in Releases", "JIRA")
         priority_analysis("ALL", "", merged_dataframe, "GitHub Distance in Releases", "GITHUB")
         priority_analysis("ALL", "", merged_dataframe, "Fix Distance in Releases", "BOTH")
+
+        print "Finished consolidating ", len(all_dataframes), " project information"
+
     finally:
         winsound.Beep(2500, 1000)
         pass
