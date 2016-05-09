@@ -95,84 +95,77 @@ def get_isis():
             'repositories': ["isis"]}
 
 
-# No commit zone!
-
-def get_acummulo():
-    """
-    Only 8 issues, with no commits
-    :return: Project configuration.
-    """
-    # return {'project_key': "ACCUMULO",
-    #         'project_id': "12312121",
-    #         'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
-    #         'repositories': ["accumulo"]}
-    return None
-
-
-def get_helix():
-    """
-    None of the issues on our JIRA DB has commits on the Git Repository.
-
-    :return:Project configuration
-    """
-    # return {'project_key': "HELIX",
-    #         'project_id': "12314020",
-    #         'release_regex': r"^helix-(\d+\.)?(\d+\.)?(\*|\d+)$",
-    #         'repositories': ["helix"]}
-    return None
-
-
-def get_mesos():
-    """
-    None of the issues on our JIRA DB has commits on the Git Repository.
-
-    :return:Project configuration
-    """
-    # return {'project_key': "MESOS",
-    #         'project_id': "12311242",
-    #         'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
-    #         'repositories': ["mesos"]}
-    return None
-
-
 def get_cassandra():
     """
-    None of the commits on the Database contain the JIRA Issue Key.
+    Git and JIRA plots are very similar, and it behaves like a regular project.
+
+    Also, some negative values on Git.
+
     :return: Project configuration.
     """
-    # return {'project_key': "CASSANDRA",
-    #         'project_id': "12310865",
-    #         'release_regex': r"^cassandra-(\d+\.)?(\d+\.)?(\*|\d+)$",
-    #         'repositories': ["cassandra"]}
-    return None
+    return {'project_key': "CASSANDRA",
+            'project_id': "12310865",
+            'release_regex': r"^cassandra-(\d+\.)?(\d+\.)?(\*|\d+)$",
+            'repositories': ["cassandra"]}
 
-
-# No repo zone!
-
-def get_vcl():
-    """
-    Has no repository on the official Apache GitHub account.
-    :return: Project configuration.
-    """
-    return None
-
-
-# Unclear tag zone!
 
 def get_phoenix():
     """
-    The tags for releases are not clear. Need to check documentation.
+    JIRA information is way distorted, and Git shows very thin boxes. A large amount of issues at delivered at the next
+    release.
+
+    Release information: https://phoenix.apache.org/release.html
+
     :return:Project configuration.
     """
-    return None
+    return {'project_key': "PHOENIX",
+            'project_id': "12315120",
+            'release_regex': r"^v(\d+\.)?(\d+\.)?(\*|\d+)$",
+            'repositories': ["phoenix"]}
 
 
 def get_slider():
     """
-    A repository is on Git, but the tag names are uncommon. Currently delayed.
+
+    A lot of thin boxes again. Several issues delivered on the next release.
+
+    Release process: https://slider.incubator.apache.org/developing/releasing_process_v1.html
+
     :return: Project configuration.
     """
-    return None
+    return {'project_key': "SLIDER",
+            'project_id': "12315422",
+            'release_regex': r"^release-(\d+\.)?(\d+\.)?(\*|\d+)$",
+            'repositories': ["incubator-slider"]}
+
+
+def get_mesos():
+    """
+    We see a clear difference between each priority level, however we only have 25 issues.
+
+    Also, no trivial issues are found.
+
+    :return:Project configuration
+    """
+    return {'project_key': "MESOS",
+            'project_id': "12311242",
+            'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
+            'repositories': ["mesos"]}
+
+
+def get_helix():
+    """
+    Almost all issues are Major, so Major has an usually large box.
+
+    :return:Project configuration
+    """
+    return {'project_key': "HELIX",
+            'project_id': "12314020",
+            'release_regex': r"^helix-(\d+\.)?(\d+\.)?(\*|\d+)$",
+            'repositories': ["helix"]}
+
+
+# Unclear tag zone!
 
 
 def get_geode():
@@ -257,6 +250,29 @@ def get_usergrid():
     Has several repositories in Apache GitHub account. Currently delayed.
 
     Although, the main repo seems identifiable.
+    :return: Project configuration.
+    """
+    return None
+
+
+# No commit zone!
+
+def get_acummulo():
+    """
+    Only 8 issues, with no commits
+    :return: Project configuration.
+    """
+    return {'project_key': "ACCUMULO",
+            'project_id': "12312121",
+            'release_regex': r"^(\d+\.)?(\d+\.)?(\*|\d+)$",
+            'repositories': ["accumulo"]}
+
+
+# No repo zone!
+
+def get_vcl():
+    """
+    Has no repository on the official Apache GitHub account.
     :return: Project configuration.
     """
     return None

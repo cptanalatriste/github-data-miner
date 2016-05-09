@@ -201,8 +201,14 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
     issues_in_project_label = " Issues in Project "
 
     figure, axes = plt.subplots(1, 1, figsize=(10, 10))
-    resolved_issues[priority_column].value_counts(normalize=True, sort=False).plot(kind='bar', ax=axes)
+    if len(resolved_issues.index) == 0:
+        print "No issues found for project ", project_key
+        return
+
     issues = str(len(resolved_issues.index))
+    print project_key, ": Plotting ", issues, " issues."
+
+    resolved_issues[priority_column].value_counts(normalize=True, sort=False).plot(kind='bar', ax=axes)
     axes.set_xlabel(priority_label)
     axes.set_ylabel(issues_percentage_label)
     axes.set_title("Priority Distribution for " + issues + issues_in_project_label + project_key)
@@ -221,17 +227,21 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
 
     for priority_value in priority_list:
         priority_issues = resolved_issues[resolved_issues[priority_column] == priority_value]
-
-        figure, axes = plt.subplots(1, 1, figsize=(10, 10))
-        priority_issues[distance_column].value_counts(normalize=True, sort=False).plot(ax=axes, kind='bar')
-
         issues = str(len(priority_issues.index))
-        axes.set_xlabel(releases_label)
-        axes.set_ylabel(issues_percentage_label)
-        axes.set_title(fix_distance_label + issues + " " + priority_value +
-                       issues_in_project_label + project_key)
-        axes.get_figure().savefig(".\\" + project_id + "\\" + file_prefix +
-                                  "_Priority_" + priority_value + "_" + project_id + ".png")
+
+        if len(priority_issues.index) > 0:
+            print project_key, ": Plotting ", issues, " of Priority ", priority_value
+            figure, axes = plt.subplots(1, 1, figsize=(10, 10))
+            priority_issues[distance_column].value_counts(normalize=True, sort=False).plot(ax=axes, kind='bar')
+
+            axes.set_xlabel(releases_label)
+            axes.set_ylabel(issues_percentage_label)
+            axes.set_title(fix_distance_label + issues + " " + priority_value +
+                           issues_in_project_label + project_key)
+            axes.get_figure().savefig(".\\" + project_id + "\\" + file_prefix +
+                                      "_Priority_" + priority_value + "_" + project_id + ".png")
+        else:
+            print project_key, ": No issues found for Priority ", priority_value
 
         priority_samples.append(priority_issues[distance_column])
 
@@ -275,13 +285,13 @@ def main():
                 project_key = config['project_key']
 
                 # consolidate_information(project_id, release_regex)
-                commit_analysis(repositories, project_id, project_key)
+                # commit_analysis(repositories, project_id, project_key)
 
                 project_dataframe = get_project_dataframe(project_id)
                 all_dataframes.append(project_dataframe)
-                priority_analysis(project_key, project_id, project_dataframe, "JIRA Distance in Releases", "JIRA")
-                priority_analysis(project_key, project_id, project_dataframe, "GitHub Distance in Releases", "GITHUB")
-                priority_analysis(project_key, project_id, project_dataframe, "Fix Distance in Releases", "BOTH")
+                # priority_analysis(project_key, project_id, project_dataframe, "JIRA Distance in Releases", "JIRA")
+                # priority_analysis(project_key, project_id, project_dataframe, "GitHub Distance in Releases", "GITHUB")
+                # priority_analysis(project_key, project_id, project_dataframe, "Fix Distance in Releases", "BOTH")
 
         merged_dataframe = pd.concat(all_dataframes)
         priority_analysis("ALL", "", merged_dataframe, "JIRA Distance in Releases", "JIRA")
