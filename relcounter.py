@@ -283,7 +283,7 @@ def main():
                 release_regex = config['release_regex']
                 repositories = config['repositories']
                 project_key = config['project_key']
-
+                #
                 # consolidate_information(project_id, release_regex)
                 # commit_analysis(repositories, project_id, project_key)
 
@@ -293,12 +293,16 @@ def main():
                 # priority_analysis(project_key, project_id, project_dataframe, "GitHub Distance in Releases", "GITHUB")
                 # priority_analysis(project_key, project_id, project_dataframe, "Fix Distance in Releases", "BOTH")
 
+        projects = str(len(all_dataframes))
         merged_dataframe = pd.concat(all_dataframes)
-        priority_analysis("ALL", "", merged_dataframe, "JIRA Distance in Releases", "JIRA")
-        priority_analysis("ALL", "", merged_dataframe, "GitHub Distance in Releases", "GITHUB")
-        priority_analysis("ALL", "", merged_dataframe, "Fix Distance in Releases", "BOTH")
+        all_key = projects + "PROJECTS"
+        all_id = ""
 
-        print "Finished consolidating ", len(all_dataframes), " project information"
+        priority_analysis(all_key, all_id, merged_dataframe, "JIRA Distance in Releases", "JIRA")
+        priority_analysis(all_key, all_id, merged_dataframe, "GitHub Distance in Releases", "GITHUB")
+        priority_analysis(all_key, all_id, merged_dataframe, "Fix Distance in Releases", "BOTH")
+
+        print "Finished consolidating ", projects, " project information"
 
     finally:
         winsound.Beep(2500, 1000)
