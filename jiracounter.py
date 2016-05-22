@@ -12,6 +12,14 @@ VERSION_NAME_INDEX = 6
 VERSION_ID_INDEX = 4
 VERSION_DATE_INDEX = 3
 
+AUTHOR_INDEX = 1
+CREATED_INDEX = 0
+
+TO_STRING_INDEX = 8
+CHANGE_FIELD_INDEX = 3
+
+VALID_RESOLUTION_VALUES = ['Done', 'Implemented', 'Fixed']
+
 
 def get_version_position_jira(project_id, version_date):
     """
@@ -97,6 +105,24 @@ def get_closest_release(created_date, project_id):
     return None
 
 
+def get_resolution_log(issue_id):
+    """
+    Returns Resolution Log information. That is, the lates resolution log item to a valid resolution value.
+    :param issue_id: JIRA issue identifier.
+    :return: Tuple with log information.
+    """
+    log = None
+
+    log_items = jdata.get_change_log(issue_id)
+    sorted_log_items = sorted(log_items, reverse=True, key=lambda item: item[CREATED_INDEX])
+
+    for log_item in sorted_log_items:
+        if log_item[CHANGE_FIELD_INDEX] == "resolution" and log_item[TO_STRING_INDEX] in VALID_RESOLUTION_VALUES:
+            return log_item
+
+    return None
+
+
 def get_JIRA_metrics(issue_id, project_id, created_date):
     """
     Gathers issue inflation information from the JIRA database.
@@ -111,7 +137,6 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
     earliest_fix_name = earliest_fix[VERSION_NAME_INDEX] if earliest_fix else None
     latest_fix_name = latest_fix[VERSION_NAME_INDEX] if latest_fix else None
 
-
     affected_versions = jdata.get_affected_versions(issue_id)
     earliest_affected, latest_affected = get_first_last_version(affected_versions)
     latest_affected_name = latest_affected[VERSION_NAME_INDEX] if latest_affected else None
@@ -123,5 +148,17 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
     jira_distance_releases = get_release_distance_jira(project_id, closest_release, earliest_fix, unit="releases")
     closest_release_name = closest_release[VERSION_NAME_INDEX] if closest_release else None
 
+    resolved_by = None
+    resolution_date_parsed = None
+    resolution_time = None
+
+    resolution_log = get_resolution_log(issue_id)
+
+    if resolution_log:
+        resolved_by = resolution_log[AUTHOR_INDEX]
+        resol_timestamp = resolution_log[CREATED_INDEX]
+        resolution_date_parsed = datetime.datetime.fromtimestamp(resol_timestamp / 1000, tz=tzlocal())
+        resolution_time = (resol_timestamp - created_date) / (1000 * 60 * 60)  # In hours
+
     return earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance, \
-           jira_distance_releases, closest_release_name
+           jira_distance_releases, closest_release_name, resolved_by, resolution_date_parsed, resolution_time

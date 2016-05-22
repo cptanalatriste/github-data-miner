@@ -4,6 +4,7 @@ Module reads information from Git and JIRA and moves it to the Database
 
 import git
 import winsound
+import re
 
 import catalog
 import jdata
@@ -17,10 +18,12 @@ WORD_BOUNDARY = r'\b'
 PATTERN_OPTION = "--grep="
 ALL_BRANCHES_OPTION = "--all"
 FORMAT_SHA_OPTION = "--pretty=%H"
+FORMAT_AUTHOR_DATE = "--pretty='%aE %ct'"
 CONTAINS_OPTION = "--contains"
 
 HEAD_OPTION = "-1"
 DATE_FORMAT_OPTION = "--format=%ai"
+SHORTSTAT_OPTION = "--shortstat"
 
 # TODO(cgavidia): Move to JDATA module
 KEY_INDEX = 31
@@ -144,16 +147,57 @@ def get_stats_per_commit(project_id):
     gjdata.insert_stats_per_commit(db_records)
 
 
+def get_commit_information(project_id):
+    print "Retrieving stat information for commits on project " + project_id
+
+    commits = gjdata.get_commits_per_project(project_id)
+
+    print "Reviewing ", len(commits), " commits..."
+    commit_list = []
+    for commit_sha, repository in commits:
+        repository_location = REPO_LOCATION + repository
+        git_client = git.Git(repository_location)
+        commit_info = git_client.log(HEAD_OPTION, FORMAT_AUTHOR_DATE, SHORTSTAT_OPTION,
+                                     commit_sha).splitlines()
+
+        author = commit_info[0].split()[0]
+        commit_date = commit_info[0].split()[1]
+
+        lines = 0
+        insertions = 0
+        files = 0
+        deletions = 0
+        if len(commit_info) == 3:
+            for token in commit_info[2].split(','):
+                if "file" in token:
+                    files = int(re.findall('\d+', token)[0])
+                elif "insertion" in token:
+                    insertions = int(re.findall('\d+', token)[0])
+                    lines += insertions
+                elif "deletion" in token:
+                    deletions = int(re.findall('\d+', token)[0])
+                    lines += deletions
+
+        commit_tuple = (
+            project_id, repository, commit_sha, deletions, lines, insertions, files, author[1:], commit_date[:-1])
+        commit_list.append(commit_tuple)
+
+    print "Storing ", len(commit_list), " records in the database."
+    gjdata.insert_git_commits(commit_list)
+
+
 def main():
     try:
         for config in catalog.get_project_catalog():
-            repositories = config['repositories']
-            project_id = config['project_id']
-
-            get_issues_and_commits(repositories, project_id)
-            get_tags_per_commit(project_id)
-            get_tags(project_id, repositories)
-            # get_stats_per_commit(project_id)
+            if config:
+                repositories = config['repositories']
+                project_id = config['project_id']
+                #
+                # get_issues_and_commits(repositories, project_id)
+                # get_tags_per_commit(project_id)
+                # get_tags(project_id, repositories)
+                # get_stats_per_commit(project_id)
+                get_commit_information(project_id)
     finally:
         winsound.Beep(2500, 1000)
 

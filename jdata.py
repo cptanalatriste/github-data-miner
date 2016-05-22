@@ -12,6 +12,17 @@ def get_issue_by_key(key):
     return dbutils.execute_query(issue_sql, (key,), DATABASE_FILE)
 
 
+def get_change_log(issue_id):
+    """
+    Return all the change log items for a JIRA issue.
+    :param issue_id: JIRA issue id.
+    :return: Log item list.
+    """
+    log_sql = "SELECT h.created, h.authorId, c.* FROM Issue i, History h, " \
+              "ChangeLogItem c WHERE i.id = ? AND i.id  = h.issueId AND h.id = c.historyId"
+    return dbutils.execute_query(log_sql, (issue_id,), DATABASE_FILE)
+
+
 def get_versions_by_project(project_id):
     """
     Return version information by project id.

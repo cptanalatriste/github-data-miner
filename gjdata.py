@@ -16,7 +16,7 @@ TAGS_DDL = "CREATE TABLE commit_tag (project_id TEXT, repository TEXT, commit_sh
 TAG_TABLE_DDL = "CREATE TABLE git_tag (project_id TEXT, repository TEXT, tag_name TEXT, tag_date TEXT," \
                 " PRIMARY KEY(project_id, repository, tag_name))"
 COMMIT_TABLE_DDL = "CREATE TABLE git_commit (project_id TEXT, repository TEXT , commit_sha TEXT, " \
-                   "deletions INTEGER, lines INTEGER, insertions INTEGER, files INTEGER," \
+                   "deletions INTEGER, lines INTEGER, insertions INTEGER, files INTEGER, author TEXT, commit_date TEXT," \
                    " PRIMARY KEY(project_id, repository, commit_sha))"
 
 
@@ -25,7 +25,29 @@ def create_schema():
     Creates the tables for storing the Github-JIRA information.
     :return: None
     """
+    print "COMMIT_TABLE_DDL ", COMMIT_TABLE_DDL
+
     dbutils.create_schema([COMMIT_TABLE_DDL], DATABASE_FILE)
+
+
+def insert_git_commits(db_records):
+    """
+    Inserts commit information into the database.
+    :param db_records:  List of tuples.
+    :return: None.
+    """
+    insert_commit = "INSERT INTO git_commit VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    dbutils.load_list(insert_commit, db_records, DATABASE_FILE)
+
+
+def insert_git_tags(db_records):
+    """
+    Inserts tag information into the database.
+    :param db_records:  List of tuples.
+    :return: None.
+    """
+    insert_tag = "INSERT INTO git_tag VALUES (?, ?, ?, ?)"
+    dbutils.load_list(insert_tag, db_records, DATABASE_FILE)
 
 
 def get_tag_information(project_id, tag_name):
@@ -49,16 +71,6 @@ def get_tags_by_project(project_id):
     tags_sql = "SELECT * FROM git_tag WHERE project_id=?"
     tags = dbutils.execute_query(tags_sql, (project_id,), DATABASE_FILE)
     return tags
-
-
-def insert_git_tags(db_records):
-    """
-    Inserts tag information into the database.
-    :param db_records:  List of tuples.
-    :return: None.
-    """
-    insert_tag = "INSERT INTO git_tag VALUES (?, ?, ?, ?)"
-    dbutils.load_list(insert_tag, db_records, DATABASE_FILE)
 
 
 def insert_stats_per_commit(db_records):
