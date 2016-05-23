@@ -116,8 +116,29 @@ def get_commits_per_project(project_id):
 
 
 def get_commits_by_issue(project_id, key):
+    """
+    Returns the sha's related to a JIRA Issue Key
+    :param project_id: JIRA Project identifier.
+    :param key:  JIRA key.
+    :return: Commits per Issue.
+    """
     commit_sql = "SELECT * FROM issue_commit WHERE project_id=? AND issue_key=?"
     return dbutils.execute_query(commit_sql, (project_id, key), DATABASE_FILE)
+
+
+def get_commit_information(project_id, key):
+    """
+    Returns detailed commit information.
+    :param project_id: JIRA Project identifier.
+    :param key: JIRA key.
+    :return: Commits per Issue.
+    """
+    commit_sql = "SELECT c.* FROM git_commit c, issue_commit  ic " \
+                 "WHERE ic.project_id = c.project_id AND" \
+                 " ic.repository = c.repository AND" \
+                 " ic.commit_sha = c.commit_sha AND" \
+                 " ic.issue_key = ? AND ic.project_id=?"
+    return dbutils.execute_query(commit_sql, (key, project_id), DATABASE_FILE)
 
 
 def get_tags_by_commit_sha(project_id, commit_sha):

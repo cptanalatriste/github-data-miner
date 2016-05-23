@@ -95,12 +95,13 @@ def consolidate_information(project_id, release_regex):
         # TODO This screams a refactor
         (earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance,
          jira_distance_releases, closest_release_jira, jira_resolved_by,
-         jira_resolution_date_parsed, jira_resolution_time) = jiracounter.get_JIRA_metrics(
+         jira_resolution_date_parsed, jira_resolution_time, comments) = jiracounter.get_JIRA_metrics(
             issue_id, project_id, created_date)
         earliest_affected_name = earliest_affected[jiracounter.VERSION_NAME_INDEX] if earliest_affected  else None
 
-        earliest_tag, github_distance, github_distance_releases, commits, tags_per_comit, closest_tag = gitcounter.get_github_metrics(
-            project_id, key, release_regex, created_date_parsed)
+        (earliest_tag, github_distance, github_distance_releases, commits, tags_per_comit,
+         closest_tag, committer, commit_date, total_lines, git_resolution_time) = gitcounter.get_github_metrics(
+            project_id, key, release_regex, created_date)
 
         github_jira_distance = None
         if jira_distance and github_distance:
@@ -114,7 +115,8 @@ def consolidate_information(project_id, release_regex):
             latest_fix_name, commits, tags_per_comit, earliest_tag, github_jira_distance, jira_distance,
             github_distance, fix_distance, jira_distance_releases, github_distance_releases, fix_distance_releases,
             created_date_parsed, closest_release_jira, closest_tag, reported_by, jira_resolved_by,
-            jira_resolution_date_parsed, jira_resolution_time)
+            jira_resolution_date_parsed, jira_resolution_time, committer, commit_date, total_lines, git_resolution_time,
+            comments)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -136,7 +138,8 @@ def write_consolidated_file(project_id, records):
                      "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance",
                      "Fix distance", "JIRA Distance in Releases", "GitHub Distance in Releases",
                      "Fix Distance in Releases", "Creation Date", "Closest Release JIRA", "Closest Tag Git",
-                     "Reported By", "JIRA Resolved By", "JIRA Resolved Date", "JIRA Resolution Time"]
+                     "Reported By", "JIRA Resolved By", "JIRA Resolved Date", "JIRA Resolution Time", "Git Committer",
+                     "Git Commit Date", "Total LOC", "Git Resolution Time", "Comments in JIRA"]
     issues_dataframe = DataFrame(records, columns=column_header)
 
     print "Writing " + str(len(records)) + " issues in " + get_csv_file_name(project_id)
@@ -201,8 +204,8 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
 
     priority_label = "Priority"
     issues_percentage_label = "% of issues"
-    releases_label = "Number of releases"
-    fix_distance_label = "Distance between the closest release and fix release: "
+    releases_label = distance_column
+    fix_distance_label = distance_column + ": "
     issues_in_project_label = " Issues in Project "
 
     figure, axes = plt.subplots(1, 1, figsize=(10, 10))
@@ -237,8 +240,9 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
         if len(priority_issues.index) > 0:
             print project_key, ": Plotting ", issues, " of Priority ", priority_value
             figure, axes = plt.subplots(1, 1, figsize=(10, 10))
-            priority_issues[distance_column].value_counts(normalize=True, sort=False).plot(ax=axes, kind='bar')
 
+            # priority_issues[distance_column].value_counts(normalize=True, sort=False).plot(ax=axes, kind='bar')
+            priority_issues[distance_column].hist(ax=axes)
             axes.set_xlabel(releases_label)
             axes.set_ylabel(issues_percentage_label)
             axes.set_title(fix_distance_label + issues + " " + priority_value +
@@ -274,6 +278,7 @@ def get_project_dataframe(project_id):
     resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Resolved'])]
     resolved_issues = issues_dataframe[issues_dataframe['Resolution'].isin(jiracounter.VALID_RESOLUTION_VALUES)]
     resolved_issues = issues_dataframe[issues_dataframe['Commits'] > 0]
+    resolved_issues = issues_dataframe[issues_dataframe['Reported By'] != issues_dataframe['JIRA Resolved By']]
 
     return resolved_issues
 
@@ -281,6 +286,14 @@ def get_project_dataframe(project_id):
 def main():
     try:
         all_dataframes = []
+
+        analysis_list = [{"distance_column": "Git Resolution Time",
+                          "prefix": "GITHUB_TIME"},
+                         {"distance_column": "Total LOC",
+                          "prefix": "GITHUB_LOC"},
+                         {"distance_column": "Comments in JIRA",
+                          "prefix": "JIRA_COMMENTS"}
+                         ]
 
         for config in catalog.get_project_catalog():
             if config:
@@ -290,24 +303,29 @@ def main():
                 project_key = config['project_key']
 
                 consolidate_information(project_id, release_regex)
-                # commit_analysis(repositories, project_id, project_key)
+                commit_analysis(repositories, project_id, project_key)
 
-                # project_dataframe = get_project_dataframe(project_id)
-                # all_dataframes.append(project_dataframe)
-                # priority_analysis(project_key, project_id, project_dataframe, "JIRA Distance in Releases", "JIRA")
-                # priority_analysis(project_key, project_id, project_dataframe, "GitHub Distance in Releases", "GITHUB")
-                # priority_analysis(project_key, project_id, project_dataframe, "Fix Distance in Releases", "BOTH")
+                project_dataframe = get_project_dataframe(project_id)
+                all_dataframes.append(project_dataframe)
 
-        # projects = str(len(all_dataframes))
-        # merged_dataframe = pd.concat(all_dataframes)
-        # all_key = projects + "PROJECTS"
-        # all_id = ""
-        #
-        # priority_analysis(all_key, all_id, merged_dataframe, "JIRA Distance in Releases", "JIRA")
-        # priority_analysis(all_key, all_id, merged_dataframe, "GitHub Distance in Releases", "GITHUB")
-        # priority_analysis(all_key, all_id, merged_dataframe, "Fix Distance in Releases", "BOTH")
-        #
-        # print "Finished consolidating ", projects, " project information"
+                for analysis in analysis_list:
+                    distance_column = analysis["distance_column"]
+                    prefix = analysis["prefix"]
+
+                    priority_analysis(project_key, project_id, project_dataframe, distance_column, prefix)
+
+        projects = str(len(all_dataframes))
+        merged_dataframe = pd.concat(all_dataframes)
+        all_key = projects + "PROJECTS"
+        all_id = ""
+
+        for analysis in analysis_list:
+            distance_column = analysis["distance_column"]
+            prefix = analysis["prefix"]
+
+            priority_analysis(all_key, all_id, merged_dataframe, distance_column, prefix)
+
+        print "Finished consolidating ", projects, " project information"
 
     finally:
         winsound.Beep(2500, 1000)

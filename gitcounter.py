@@ -4,6 +4,10 @@ This module makes priority and inflation calculations based on Git data
 
 import re
 
+import datetime
+
+from dateutil.tz import tzlocal
+
 import gjdata
 import gminer
 import dateutil.parser
@@ -13,6 +17,10 @@ from bisect import bisect
 TAG_NAME_INDEX = 3
 SHA_INDEX = 3
 TAG_DATE_INDEX = 3
+
+COMMIT_DATE_INDEX = 8
+COMMIT_LINES = 4
+COMMITER_INDEX = 7
 
 
 def get_version_position_git(project_id, tag_date, release_regex):
@@ -177,13 +185,33 @@ def get_closest_tag(created_date_parsed, project_id, release_regex):
     return None
 
 
-def get_github_metrics(project_id, key, release_regex, created_date_parsed):
+def get_earliest_commit(project_id, key):
+    """
+    Returns the earliest commit related to a JIRA Issue, and the total line count.
+    :param project_id:
+    :param key:
+    :return:
+    """
+    commit_info = None
+
+    commits_per_issue = gjdata.get_commit_information(project_id, key)
+    commits_sorted = sorted(commits_per_issue, key=lambda commit: commit[COMMIT_DATE_INDEX])
+
+    if len(commits_sorted) > 0:
+        commit_info = commits_sorted[0]
+
+    total_lines = sum([int(commit_info[COMMIT_LINES]) for commit_info in commits_per_issue])
+
+    return commit_info, total_lines
+
+
+def get_github_metrics(project_id, key, release_regex, created_date):
     """
     Return the information extracted from GitHub
     :param project_id: JIRA's project identifier.
     :param key: JIRA's Issue Key.
     :param release_regex: Regex for valid release names,
-    :param created_date: Creation date of the issue,
+    :param created_date: Creation date of the issue in a timestamp,
     :return: Earliest release tag, days between affected and fix tag, releases between affected and fix tag, number of commits for the issue,
     commits with release tags.
     """
@@ -191,6 +219,8 @@ def get_github_metrics(project_id, key, release_regex, created_date_parsed):
     tags_per_comit = get_tags_for_commits(project_id, commits, release_regex=release_regex)
 
     earliest_tag = get_earliest_tag(tags_per_comit)
+
+    created_date_parsed = datetime.datetime.fromtimestamp(created_date / 1000, tz=tzlocal())
     closest_tag = get_closest_tag(created_date_parsed, project_id, release_regex)
 
     github_time_distance = get_release_distance_git(project_id, closest_tag,
@@ -198,4 +228,18 @@ def get_github_metrics(project_id, key, release_regex, created_date_parsed):
     github_distance = github_time_distance.days if github_time_distance else None
     github_distance_releases = get_release_distance_git(project_id, closest_tag,
                                                         earliest_tag, release_regex, unit="releases")
-    return earliest_tag, github_distance, github_distance_releases, len(commits), len(tags_per_comit), closest_tag
+
+    commiter = None
+    commmit_date = None
+    commit_lines = None
+    resolution_time = None
+
+    earliest_commit, total_lines = get_earliest_commit(project_id, key)
+    if earliest_commit:
+        commiter = earliest_commit[COMMITER_INDEX]
+        commit_lines = total_lines
+        commmit_date = datetime.datetime.fromtimestamp(int(earliest_commit[COMMIT_DATE_INDEX]), tz=tzlocal())
+        resolution_time = (int(earliest_commit[COMMIT_DATE_INDEX]) - created_date / 1000) / (60 * 60)
+
+    return earliest_tag, github_distance, github_distance_releases, len(commits), len(tags_per_comit), \
+           closest_tag, commiter, commmit_date, commit_lines, resolution_time

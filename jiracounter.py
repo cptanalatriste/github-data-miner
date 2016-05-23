@@ -96,7 +96,7 @@ def get_closest_release(created_date, project_id):
     :return: Version tuple
     """
     all_versions = jdata.get_versions_by_project(project_id)
-    all_versions_sorted = sorted(all_versions, key=lambda version: version[VERSION_DATE_INDEX])
+    all_versions_sorted = sorted(all_versions, reverse=True, key=lambda version: version[VERSION_DATE_INDEX])
 
     for version in all_versions_sorted:
         if version[VERSION_DATE_INDEX] > created_date:
@@ -160,5 +160,8 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
         resolution_date_parsed = datetime.datetime.fromtimestamp(resol_timestamp / 1000, tz=tzlocal())
         resolution_time = (resol_timestamp - created_date) / (1000 * 60 * 60)  # In hours
 
+    issue_comments = jdata.get_issue_comments(issue_id)
+
     return earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance, \
-           jira_distance_releases, closest_release_name, resolved_by, resolution_date_parsed, resolution_time
+           jira_distance_releases, closest_release_name, resolved_by, resolution_date_parsed, resolution_time, len(
+        issue_comments)

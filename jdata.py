@@ -12,6 +12,16 @@ def get_issue_by_key(key):
     return dbutils.execute_query(issue_sql, (key,), DATABASE_FILE)
 
 
+def get_issue_comments(issue_id):
+    """
+    Returns all the comments for a JIRA Issue
+    :param issue_id: JIRA Issue Identifier.
+    :return: List of comments
+    """
+    comment_sql = "SELECT * FROM Comment WHERE issueId = ?"
+    return dbutils.execute_query(comment_sql, (issue_id,), DATABASE_FILE)
+
+
 def get_change_log(issue_id):
     """
     Return all the change log items for a JIRA issue.
