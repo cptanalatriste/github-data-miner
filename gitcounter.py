@@ -238,8 +238,9 @@ def get_github_metrics(project_id, key, release_regex, created_date):
     if earliest_commit:
         commiter = earliest_commit[COMMITER_INDEX]
         commit_lines = total_lines
-        commmit_date = datetime.datetime.fromtimestamp(int(earliest_commit[COMMIT_DATE_INDEX]), tz=tzlocal())
-        resolution_time = (int(earliest_commit[COMMIT_DATE_INDEX]) - created_date / 1000) / (60 * 60)
+        if earliest_commit[COMMIT_DATE_INDEX]:
+            commmit_date = datetime.datetime.fromtimestamp(int(earliest_commit[COMMIT_DATE_INDEX]), tz=tzlocal())
+            resolution_time = (int(earliest_commit[COMMIT_DATE_INDEX]) - created_date / 1000) / (60 * 60)
 
     return earliest_tag, github_distance, github_distance_releases, len(commits), len(tags_per_comit), \
            closest_tag, commiter, commmit_date, commit_lines, resolution_time
