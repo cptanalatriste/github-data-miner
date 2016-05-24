@@ -16,6 +16,7 @@ AUTHOR_INDEX = 1
 CREATED_INDEX = 0
 
 TO_STRING_INDEX = 8
+FROM_STRING_INDEX = 6
 CHANGE_FIELD_INDEX = 3
 
 VALID_RESOLUTION_VALUES = ['Done', 'Implemented', 'Fixed']
@@ -105,19 +106,35 @@ def get_closest_release(created_date, project_id):
     return None
 
 
-def get_resolution_log(issue_id):
+def get_resolution_log(log_items):
     """
-    Returns Resolution Log information. That is, the lates resolution log item to a valid resolution value.
-    :param issue_id: JIRA issue identifier.
+    Returns Resolution Log information. That is, the latest resolution log item to a valid resolution value.
+    :param log_items: List of change log items.
     :return: Tuple with log information.
     """
     log = None
 
-    log_items = jdata.get_change_log(issue_id)
     sorted_log_items = sorted(log_items, reverse=True, key=lambda item: item[CREATED_INDEX])
 
     for log_item in sorted_log_items:
         if log_item[CHANGE_FIELD_INDEX] == "resolution" and log_item[TO_STRING_INDEX] in VALID_RESOLUTION_VALUES:
+            return log_item
+
+    return None
+
+
+def get_last_priority_log(log_items):
+    """
+    Returns the last change on the priority of an issue.
+    :param log_items: List of change log items.
+    :return: Last priority change log item.
+    """
+    log = None
+
+    sorted_log_items = sorted(log_items, reverse=True, key=lambda item: item[CREATED_INDEX])
+
+    for log_item in sorted_log_items:
+        if log_item[CHANGE_FIELD_INDEX] == "priority":
             return log_item
 
     return None
@@ -152,7 +169,8 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
     resolution_date_parsed = None
     resolution_time = None
 
-    resolution_log = get_resolution_log(issue_id)
+    log_items = jdata.get_change_log(issue_id)
+    resolution_log = get_resolution_log(log_items)
 
     if resolution_log:
         resolved_by = resolution_log[AUTHOR_INDEX]
@@ -160,8 +178,18 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
         resolution_date_parsed = datetime.datetime.fromtimestamp(resol_timestamp / 1000, tz=tzlocal())
         resolution_time = (resol_timestamp - created_date) / (1000 * 60 * 60)  # In hours
 
+    priority_changed_by = None
+    priority_changed_to = None
+    priority_change_from = None
+
+    priority_log = get_last_priority_log(log_items)
+    if priority_log:
+        priority_changed_by = priority_log[AUTHOR_INDEX]
+        priority_changed_to = priority_log[TO_STRING_INDEX]
+        priority_change_from = priority_log[FROM_STRING_INDEX]
+
     issue_comments = jdata.get_issue_comments(issue_id)
 
     return earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance, \
            jira_distance_releases, closest_release_name, resolved_by, resolution_date_parsed, resolution_time, len(
-        issue_comments)
+        issue_comments), priority_changed_by, priority_changed_to, priority_change_from

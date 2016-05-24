@@ -95,7 +95,8 @@ def consolidate_information(project_id, release_regex):
         # TODO This screams a refactor
         (earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance,
          jira_distance_releases, closest_release_jira, jira_resolved_by,
-         jira_resolution_date_parsed, jira_resolution_time, comments) = jiracounter.get_JIRA_metrics(
+         jira_resolution_date_parsed, jira_resolution_time, comments, priority_changed_by, priority_changed_to,
+         priority_change_from) = jiracounter.get_JIRA_metrics(
             issue_id, project_id, created_date)
         earliest_affected_name = earliest_affected[jiracounter.VERSION_NAME_INDEX] if earliest_affected  else None
 
@@ -116,7 +117,7 @@ def consolidate_information(project_id, release_regex):
             github_distance, fix_distance, jira_distance_releases, github_distance_releases, fix_distance_releases,
             created_date_parsed, closest_release_jira, closest_tag, reported_by, jira_resolved_by,
             jira_resolution_date_parsed, jira_resolution_time, committer, commit_date, total_lines, git_resolution_time,
-            comments)
+            comments, priority_changed_by, priority_change_from, priority_changed_to)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -139,7 +140,8 @@ def write_consolidated_file(project_id, records):
                      "Fix distance", "JIRA Distance in Releases", "GitHub Distance in Releases",
                      "Fix Distance in Releases", "Creation Date", "Closest Release JIRA", "Closest Tag Git",
                      "Reported By", "JIRA Resolved By", "JIRA Resolved Date", "JIRA Resolution Time", "Git Committer",
-                     "Git Commit Date", "Total LOC", "Git Resolution Time", "Comments in JIRA"]
+                     "Git Commit Date", "Total LOC", "Git Resolution Time", "Comments in JIRA", "Priority Changer",
+                     "Original Priority", "New Priority"]
     issues_dataframe = DataFrame(records, columns=column_header)
 
     print "Writing " + str(len(records)) + " issues in " + get_csv_file_name(project_id)
@@ -276,24 +278,54 @@ def get_project_dataframe(project_id):
     issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
 
     resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Resolved'])]
-    resolved_issues = issues_dataframe[issues_dataframe['Resolution'].isin(jiracounter.VALID_RESOLUTION_VALUES)]
-    resolved_issues = issues_dataframe[issues_dataframe['Commits'] > 0]
-    resolved_issues = issues_dataframe[issues_dataframe['Reported By'] != issues_dataframe['JIRA Resolved By']]
+    resolved_issues = resolved_issues[resolved_issues['Resolution'].isin(jiracounter.VALID_RESOLUTION_VALUES)]
+    resolved_issues = resolved_issues[resolved_issues['Commits'] > 0]
+    resolved_issues = resolved_issues[resolved_issues['Reported By'] != resolved_issues['JIRA Resolved By']]
 
     return resolved_issues
+
+
+def get_validated_dataframe(original_dataframe):
+    """
+    Returns a dataframe containing all the issues that got the priority adjusted by an external JIRA user.
+    :param original_dataframe: Original dataframe
+    :return: Filtered dataframe
+    """
+    validated_dataframe = original_dataframe[~original_dataframe['Priority Changer'].isnull()]
+    validated_dataframe = validated_dataframe[
+        validated_dataframe['Reported By'] != validated_dataframe['Priority Changer']]
+
+    return validated_dataframe
+
+
+def execute_analysis(project_key, project_id, all_dataframe, filtered_dataframe):
+    """
+    Executes the project analysis, on a series of task attributes and dataframes.
+    :param project_key: Project key
+    :param project_id: Project id
+    :param all_dataframe: Unfiltered dataframe
+    :param filtered_dataframe: Data frame with validated priorities.
+    :return: None
+    """
+    analysis_list = [{"distance_column": "Git Resolution Time",
+                      "prefix": "GITHUB_TIME"},
+                     {"distance_column": "Total LOC",
+                      "prefix": "GITHUB_LOC"},
+                     {"distance_column": "Comments in JIRA",
+                      "prefix": "JIRA_COMMENTS"}
+                     ]
+
+    for analysis in analysis_list:
+        distance_column = analysis["distance_column"]
+        prefix = analysis["prefix"]
+
+        priority_analysis(project_key, project_id, all_dataframe, distance_column, prefix)
+        priority_analysis(project_key, project_id, filtered_dataframe, distance_column, "VAL_" + prefix)
 
 
 def main():
     try:
         all_dataframes = []
-
-        analysis_list = [{"distance_column": "Git Resolution Time",
-                          "prefix": "GITHUB_TIME"},
-                         {"distance_column": "Total LOC",
-                          "prefix": "GITHUB_LOC"},
-                         {"distance_column": "Comments in JIRA",
-                          "prefix": "JIRA_COMMENTS"}
-                         ]
 
         for config in catalog.get_project_catalog():
             if config:
@@ -306,25 +338,18 @@ def main():
                 commit_analysis(repositories, project_id, project_key)
 
                 project_dataframe = get_project_dataframe(project_id)
+                training_dataframe = get_validated_dataframe(project_dataframe)
+
+                execute_analysis(project_key, project_id, project_dataframe, training_dataframe)
                 all_dataframes.append(project_dataframe)
-
-                for analysis in analysis_list:
-                    distance_column = analysis["distance_column"]
-                    prefix = analysis["prefix"]
-
-                    priority_analysis(project_key, project_id, project_dataframe, distance_column, prefix)
 
         projects = str(len(all_dataframes))
         merged_dataframe = pd.concat(all_dataframes)
+        merged_training_dataframe = get_validated_dataframe(merged_dataframe)
         all_key = projects + "PROJECTS"
         all_id = ""
 
-        for analysis in analysis_list:
-            distance_column = analysis["distance_column"]
-            prefix = analysis["prefix"]
-
-            priority_analysis(all_key, all_id, merged_dataframe, distance_column, prefix)
-
+        execute_analysis(all_key, all_id, merged_dataframe, merged_training_dataframe)
         print "Finished consolidating ", projects, " project information"
 
     finally:
