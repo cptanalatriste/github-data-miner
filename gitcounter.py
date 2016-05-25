@@ -21,6 +21,7 @@ TAG_DATE_INDEX = 3
 COMMIT_DATE_INDEX = 8
 COMMIT_LINES = 4
 COMMITER_INDEX = 7
+REPOSITORY_INDEX = 1
 
 
 def get_version_position_git(project_id, tag_date, release_regex):
@@ -233,14 +234,16 @@ def get_github_metrics(project_id, key, release_regex, created_date):
     commmit_date = None
     commit_lines = None
     resolution_time = None
+    repository = None
 
     earliest_commit, total_lines = get_earliest_commit(project_id, key)
     if earliest_commit:
         commiter = earliest_commit[COMMITER_INDEX]
+        repository = earliest_commit[REPOSITORY_INDEX]
         commit_lines = total_lines
         if earliest_commit[COMMIT_DATE_INDEX]:
             commmit_date = datetime.datetime.fromtimestamp(int(earliest_commit[COMMIT_DATE_INDEX]), tz=tzlocal())
             resolution_time = (int(earliest_commit[COMMIT_DATE_INDEX]) - created_date / 1000) / (60 * 60)
 
     return earliest_tag, github_distance, github_distance_releases, len(commits), len(tags_per_comit), \
-           closest_tag, commiter, commmit_date, commit_lines, resolution_time
+           closest_tag, commiter, commmit_date, commit_lines, resolution_time, repository

@@ -101,7 +101,8 @@ def consolidate_information(project_id, release_regex):
         earliest_affected_name = earliest_affected[jiracounter.VERSION_NAME_INDEX] if earliest_affected  else None
 
         (earliest_tag, github_distance, github_distance_releases, commits, tags_per_comit,
-         closest_tag, committer, commit_date, total_lines, git_resolution_time) = gitcounter.get_github_metrics(
+         closest_tag, committer, commit_date, total_lines, git_resolution_time,
+         git_repository) = gitcounter.get_github_metrics(
             project_id, key, release_regex, created_date)
 
         github_jira_distance = None
@@ -117,7 +118,7 @@ def consolidate_information(project_id, release_regex):
             github_distance, fix_distance, jira_distance_releases, github_distance_releases, fix_distance_releases,
             created_date_parsed, closest_release_jira, closest_tag, reported_by, jira_resolved_by,
             jira_resolution_date_parsed, jira_resolution_time, committer, commit_date, total_lines, git_resolution_time,
-            comments, priority_changed_by, priority_change_from, priority_changed_to)
+            comments, priority_changed_by, priority_change_from, priority_changed_to, git_repository)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -127,7 +128,7 @@ def consolidate_information(project_id, release_regex):
     return write_consolidated_file(project_id, records)
 
 
-def write_consolidated_file(project_id, records):
+def write_consolidated_file(project_id, records, issues_dataframe=None):
     """
     Creates a Dataframe with the consolidated fix distance information and writes it to a CSV file.
     :param project_id: Project identifier in JIRA.
@@ -141,15 +142,19 @@ def write_consolidated_file(project_id, records):
                      "Fix Distance in Releases", "Creation Date", "Closest Release JIRA", "Closest Tag Git",
                      "Reported By", "JIRA Resolved By", "JIRA Resolved Date", "JIRA Resolution Time", "Git Committer",
                      "Git Commit Date", "Total LOC", "Git Resolution Time", "Comments in JIRA", "Priority Changer",
-                     "Original Priority", "New Priority"]
-    issues_dataframe = DataFrame(records, columns=column_header)
+                     "Original Priority", "New Priority", "Git Repository"]
 
-    print "Writing " + str(len(records)) + " issues in " + get_csv_file_name(project_id)
+    issues = 0
+    if issues_dataframe is None and records:
+        issues_dataframe = DataFrame(records, columns=column_header)
+
+    issues = len(issues_dataframe.index)
+    print "Writing " + str(issues) + " issues in " + get_csv_file_name(project_id)
 
     file_name = get_csv_file_name(project_id)
     if not os.path.exists(os.path.dirname(file_name)):
         os.makedirs(os.path.dirname(file_name))
-    issues_dataframe.to_csv(file_name)
+    issues_dataframe.to_csv(file_name, index=False)
 
     return issues_dataframe
 
@@ -334,13 +339,13 @@ def main():
                 repositories = config['repositories']
                 project_key = config['project_key']
 
-                consolidate_information(project_id, release_regex)
-                commit_analysis(repositories, project_id, project_key)
+                # consolidate_information(project_id, release_regex)
+                # commit_analysis(repositories, project_id, project_key)
 
                 project_dataframe = get_project_dataframe(project_id)
                 training_dataframe = get_validated_dataframe(project_dataframe)
 
-                execute_analysis(project_key, project_id, project_dataframe, training_dataframe)
+                # execute_analysis(project_key, project_id, project_dataframe, training_dataframe)
                 all_dataframes.append(project_dataframe)
 
         projects = str(len(all_dataframes))
@@ -348,6 +353,7 @@ def main():
         merged_training_dataframe = get_validated_dataframe(merged_dataframe)
         all_key = projects + "PROJECTS"
         all_id = ""
+        write_consolidated_file(all_id, records=None, issues_dataframe=merged_dataframe)
 
         execute_analysis(all_key, all_id, merged_dataframe, merged_training_dataframe)
         print "Finished consolidating ", projects, " project information"
