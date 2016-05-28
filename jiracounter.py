@@ -5,6 +5,7 @@ import jdata
 
 from bisect import bisect
 from dateutil.tz import tzlocal
+from collections import namedtuple
 
 import datetime
 
@@ -140,6 +141,17 @@ def get_last_priority_log(log_items):
     return None
 
 
+def get_reopen_logs(log_items):
+    """
+    Returns the change log items corresponding to Reopens
+    :param log_items:
+    :return: List of reopen log items.
+    """
+
+    return [log_item for log_item in log_items if
+            log_item[CHANGE_FIELD_INDEX] == "status" and log_item[TO_STRING_INDEX] == "Reopened"]
+
+
 def get_JIRA_metrics(issue_id, project_id, created_date):
     """
     Gathers issue inflation information from the JIRA database.
@@ -149,6 +161,15 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
     :return: Earliest and latest affected versions, Earliest and latest fix versions, distance between earliest and
     latest affected versions in days, distance between earliest and latest affected versions in releases.
     """
+
+    JiraMetrics = namedtuple("JiraMetrics",
+                             ['earliest_affected', 'latest_affected_name', 'earliest_fix_name', 'latest_fix_name',
+                              'distance',
+                              'distance_releases', 'closest_release_name', 'resolved_by', 'resolution_date_parsed',
+                              'resolution_time',
+                              'issue_comments_len', 'priority_changed_by', 'priority_changed_to',
+                              'priority_change_from', 'change_log_len', 'reopen_len'])
+
     fix_versions = jdata.get_fix_versions(issue_id)
     earliest_fix, latest_fix = get_first_last_version(fix_versions)
     earliest_fix_name = earliest_fix[VERSION_NAME_INDEX] if earliest_fix else None
@@ -188,8 +209,18 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
         priority_changed_to = priority_log[TO_STRING_INDEX]
         priority_change_from = priority_log[FROM_STRING_INDEX]
 
+    reopen_logs = get_reopen_logs(log_items)
+
     issue_comments = jdata.get_issue_comments(issue_id)
 
-    return earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance, \
-           jira_distance_releases, closest_release_name, resolved_by, resolution_date_parsed, resolution_time, len(
-        issue_comments), priority_changed_by, priority_changed_to, priority_change_from
+    jira_metrics = JiraMetrics(earliest_affected=earliest_affected, latest_affected_name=latest_affected_name,
+                               earliest_fix_name=earliest_fix_name, latest_fix_name=latest_fix_name,
+                               distance=jira_distance,
+                               distance_releases=jira_distance_releases, closest_release_name=closest_release_name,
+                               resolved_by=resolved_by, resolution_date_parsed=resolution_date_parsed,
+                               resolution_time=resolution_time, issue_comments_len=len(issue_comments),
+                               priority_changed_by=priority_changed_by, priority_changed_to=priority_changed_to,
+                               priority_change_from=priority_change_from, change_log_len=len(log_items),
+                               reopen_len=len(reopen_logs))
+
+    return jira_metrics

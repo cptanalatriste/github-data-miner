@@ -7,6 +7,7 @@ import re
 import datetime
 
 from dateutil.tz import tzlocal
+from collections import namedtuple
 
 import gjdata
 import gminer
@@ -19,7 +20,10 @@ SHA_INDEX = 3
 TAG_DATE_INDEX = 3
 
 COMMIT_DATE_INDEX = 8
+COMMIT_DELETIONS = 3
 COMMIT_LINES = 4
+COMMIT_INSERTIONS = 5
+COMMIT_FILES = 6
 COMMITER_INDEX = 7
 REPOSITORY_INDEX = 1
 
@@ -188,12 +192,12 @@ def get_closest_tag(created_date_parsed, project_id, release_regex):
 
 def get_earliest_commit(project_id, key):
     """
-    Returns the earliest commit related to a JIRA Issue, and the total line count.
+    Returns the earliest commit related to a JIRA Issue, and the total line count and other aggregate commit metrics.
     :param project_id:
     :param key:
     :return:
     """
-    commit_info = None
+    commit_info, avg_lines, total_deletions, total_insertions, avg_files = None, None, None, None, None
 
     commits_per_issue = gjdata.get_commit_information(project_id, key)
     commits_sorted = sorted(commits_per_issue, key=lambda commit: commit[COMMIT_DATE_INDEX])
@@ -201,9 +205,14 @@ def get_earliest_commit(project_id, key):
     if len(commits_sorted) > 0:
         commit_info = commits_sorted[0]
 
-    total_lines = sum([int(commit_info[COMMIT_LINES]) for commit_info in commits_per_issue])
+        avg_lines = sum([int(commit_info[COMMIT_LINES]) for commit_info in commits_per_issue]) / float(
+            len(commits_per_issue))
+        total_deletions = sum([int(commit_info[COMMIT_DELETIONS]) for commit_info in commits_per_issue])
+        total_insertions = sum([int(commit_info[COMMIT_INSERTIONS]) for commit_info in commits_per_issue])
+        avg_files = sum([int(commit_info[COMMIT_FILES]) for commit_info in commits_per_issue]) / float(
+            len(commits_per_issue))
 
-    return commit_info, total_lines
+    return commit_info, avg_lines, total_deletions, total_insertions, avg_files
 
 
 def get_github_metrics(project_id, key, release_regex, created_date):
@@ -216,6 +225,13 @@ def get_github_metrics(project_id, key, release_regex, created_date):
     :return: Earliest release tag, days between affected and fix tag, releases between affected and fix tag, number of commits for the issue,
     commits with release tags.
     """
+
+    GitMetrics = namedtuple("GitMetrics", ['earliest_tag', 'distance', 'distance_releases', 'commits_len',
+                                           'tags_per_commit_len',
+                                           'closest_tag', 'commiter', 'commit_date', 'avg_lines', 'resolution_time',
+                                           'repository',
+                                           'total_deletions', 'total_insertions', 'avg_files'])
+
     commits = gjdata.get_commits_by_issue(project_id, key)
     tags_per_comit = get_tags_for_commits(project_id, commits, release_regex=release_regex)
 
@@ -228,22 +244,33 @@ def get_github_metrics(project_id, key, release_regex, created_date):
                                                     earliest_tag, release_regex, unit="days")
     github_distance = github_time_distance.days if github_time_distance else None
     github_distance_releases = get_release_distance_git(project_id, closest_tag,
-                                                        earliest_tag, release_regex, unit="releases")
+                                                        earliest_tag, release_regex,
+                                                        unit="releases")
+
+    earliest_commit, avg_lines, total_deletions, total_insertions, avg_files = get_earliest_commit(
+        project_id, key)
 
     commiter = None
-    commmit_date = None
-    commit_lines = None
-    resolution_time = None
     repository = None
+    commit_date = None
+    resolution_time = None
 
-    earliest_commit, total_lines = get_earliest_commit(project_id, key)
     if earliest_commit:
         commiter = earliest_commit[COMMITER_INDEX]
         repository = earliest_commit[REPOSITORY_INDEX]
-        commit_lines = total_lines
         if earliest_commit[COMMIT_DATE_INDEX]:
-            commmit_date = datetime.datetime.fromtimestamp(int(earliest_commit[COMMIT_DATE_INDEX]), tz=tzlocal())
+            commit_date = datetime.datetime.fromtimestamp(int(earliest_commit[COMMIT_DATE_INDEX]),
+                                                          tz=tzlocal())
             resolution_time = (int(earliest_commit[COMMIT_DATE_INDEX]) - created_date / 1000) / (60 * 60)
 
-    return earliest_tag, github_distance, github_distance_releases, len(commits), len(tags_per_comit), \
-           closest_tag, commiter, commmit_date, commit_lines, resolution_time, repository
+    commits_len = len(commits)
+    tags_per_commit_len = len(tags_per_comit)
+
+    git_metrics = GitMetrics(earliest_tag=earliest_tag, distance=github_distance,
+                             distance_releases=github_distance_releases, commits_len=commits_len,
+                             tags_per_commit_len=tags_per_commit_len, closest_tag=closest_tag, commiter=commiter,
+                             commit_date=commit_date, avg_lines=avg_lines, resolution_time=resolution_time,
+                             repository=repository, total_deletions=total_deletions, total_insertions=total_insertions,
+                             avg_files=avg_files)
+
+    return git_metrics

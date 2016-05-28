@@ -92,33 +92,39 @@ def consolidate_information(project_id, release_regex):
 
         created_date_parsed = datetime.datetime.fromtimestamp(created_date / 1000, tz=tzlocal())
 
-        # TODO This screams a refactor
-        (earliest_affected, latest_affected_name, earliest_fix_name, latest_fix_name, jira_distance,
-         jira_distance_releases, closest_release_jira, jira_resolved_by,
-         jira_resolution_date_parsed, jira_resolution_time, comments, priority_changed_by, priority_changed_to,
-         priority_change_from) = jiracounter.get_JIRA_metrics(
+        jira_metrics = jiracounter.get_JIRA_metrics(
             issue_id, project_id, created_date)
-        earliest_affected_name = earliest_affected[jiracounter.VERSION_NAME_INDEX] if earliest_affected  else None
+        earliest_affected_name = jira_metrics.earliest_affected[
+            jiracounter.VERSION_NAME_INDEX] if jira_metrics.earliest_affected  else None
 
-        (earliest_tag, github_distance, github_distance_releases, commits, tags_per_comit,
-         closest_tag, committer, commit_date, total_lines, git_resolution_time,
-         git_repository) = gitcounter.get_github_metrics(
+        git_metrics = gitcounter.get_github_metrics(
             project_id, key, release_regex, created_date)
 
         github_jira_distance = None
-        if jira_distance and github_distance:
-            github_jira_distance = jira_distance - github_distance
+        if jira_metrics.distance and git_metrics.distance:
+            github_jira_distance = jira_metrics.distance - git_metrics.distance
 
-        fix_distance = get_fix_distance(jira_distance, github_distance)
-        fix_distance_releases = get_fix_distance(jira_distance_releases, github_distance_releases)
+        fix_distance = get_fix_distance(jira_metrics.distance, git_metrics.distance)
+        fix_distance_releases = get_fix_distance(jira_metrics.distance_releases, git_metrics.distance_releases)
 
         csv_record = (
-            key, resolution, status, priority, earliest_affected_name, latest_affected_name, earliest_fix_name,
-            latest_fix_name, commits, tags_per_comit, earliest_tag, github_jira_distance, jira_distance,
-            github_distance, fix_distance, jira_distance_releases, github_distance_releases, fix_distance_releases,
-            created_date_parsed, closest_release_jira, closest_tag, reported_by, jira_resolved_by,
-            jira_resolution_date_parsed, jira_resolution_time, committer, commit_date, total_lines, git_resolution_time,
-            comments, priority_changed_by, priority_change_from, priority_changed_to, git_repository)
+            key, resolution, status, priority, earliest_affected_name, jira_metrics.latest_affected_name,
+            jira_metrics.earliest_fix_name,
+            jira_metrics.latest_fix_name, git_metrics.commits_len, git_metrics.tags_per_commit_len,
+            git_metrics.earliest_tag,
+            github_jira_distance, jira_metrics.distance,
+            git_metrics.distance, fix_distance, jira_metrics.distance_releases, git_metrics.distance_releases,
+            fix_distance_releases,
+            created_date_parsed, jira_metrics.closest_release_name, git_metrics.closest_tag, reported_by,
+            jira_metrics.resolved_by,
+            jira_metrics.resolution_date_parsed, jira_metrics.resolution_time, git_metrics.commiter,
+            git_metrics.commit_date,
+            git_metrics.avg_lines, git_metrics.resolution_time,
+            jira_metrics.issue_comments_len, jira_metrics.priority_changed_by, jira_metrics.priority_change_from,
+            jira_metrics.priority_changed_to,
+            git_metrics.repository,
+            git_metrics.total_deletions, git_metrics.total_insertions, git_metrics.avg_files,
+            jira_metrics.change_log_len, jira_metrics.reopen_len)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -141,8 +147,9 @@ def write_consolidated_file(project_id, records, issues_dataframe=None):
                      "Fix distance", "JIRA Distance in Releases", "GitHub Distance in Releases",
                      "Fix Distance in Releases", "Creation Date", "Closest Release JIRA", "Closest Tag Git",
                      "Reported By", "JIRA Resolved By", "JIRA Resolved Date", "JIRA Resolution Time", "Git Committer",
-                     "Git Commit Date", "Total LOC", "Git Resolution Time", "Comments in JIRA", "Priority Changer",
-                     "Original Priority", "New Priority", "Git Repository"]
+                     "Git Commit Date", "Avg Lines", "Git Resolution Time", "Comments in JIRA", "Priority Changer",
+                     "Original Priority", "New Priority", "Git Repository", "Total Deletions", "Total Insertions",
+                     "Avg Files", "Change Log Size", "Number of Reopens"]
 
     issues = 0
     if issues_dataframe is None and records:
@@ -202,8 +209,8 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
     :param file_prefix: Prefix for the generated files.
     :return: None.
     """
-    resolved_issues = issues_dataframe[~issues_dataframe[distance_column].isnull()]
 
+    resolved_issues = issues_dataframe.dropna(subset=[distance_column])
     priority_list = ['Blocker', 'Critical', 'Major', 'Minor', 'Trivial']
 
     priority_column = 'Priority'
@@ -248,7 +255,6 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
             print project_key, ": Plotting ", issues, " of Priority ", priority_value
             figure, axes = plt.subplots(1, 1, figsize=(10, 10))
 
-            # priority_issues[distance_column].value_counts(normalize=True, sort=False).plot(ax=axes, kind='bar')
             priority_issues[distance_column].hist(ax=axes)
             axes.set_xlabel(releases_label)
             axes.set_ylabel(issues_percentage_label)
@@ -269,6 +275,7 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
     axes.set_xticklabels(priority_list)
     axes.set_xlabel(priority_label)
     axes.set_ylabel(releases_label)
+    axes.set_yscale('log')
     axes.set_title(fix_distance_label + issues + issues_in_project_label + project_key)
     axes.get_figure().savefig(".\\" + project_id + "\\" + file_prefix +
                               "_All_Priorities_" + project_id + ".png")
@@ -296,7 +303,7 @@ def get_validated_dataframe(original_dataframe):
     :param original_dataframe: Original dataframe
     :return: Filtered dataframe
     """
-    validated_dataframe = original_dataframe[~original_dataframe['Priority Changer'].isnull()]
+    validated_dataframe = original_dataframe.dropna(subset=['Priority Changer'])
     validated_dataframe = validated_dataframe[
         validated_dataframe['Reported By'] != validated_dataframe['Priority Changer']]
 
@@ -314,7 +321,7 @@ def execute_analysis(project_key, project_id, all_dataframe, filtered_dataframe)
     """
     analysis_list = [{"distance_column": "Git Resolution Time",
                       "prefix": "GITHUB_TIME"},
-                     {"distance_column": "Total LOC",
+                     {"distance_column": "Avg Lines",
                       "prefix": "GITHUB_LOC"},
                      {"distance_column": "Comments in JIRA",
                       "prefix": "JIRA_COMMENTS"}
@@ -339,13 +346,13 @@ def main():
                 repositories = config['repositories']
                 project_key = config['project_key']
 
-                # consolidate_information(project_id, release_regex)
-                # commit_analysis(repositories, project_id, project_key)
+                consolidate_information(project_id, release_regex)
+                commit_analysis(repositories, project_id, project_key)
 
                 project_dataframe = get_project_dataframe(project_id)
                 training_dataframe = get_validated_dataframe(project_dataframe)
 
-                # execute_analysis(project_key, project_id, project_dataframe, training_dataframe)
+                execute_analysis(project_key, project_id, project_dataframe, training_dataframe)
                 all_dataframes.append(project_dataframe)
 
         projects = str(len(all_dataframes))
