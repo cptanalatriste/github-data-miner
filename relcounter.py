@@ -2,6 +2,7 @@
 Module for the calculation of the releases to fix field.
 """
 from dateutil.tz import tzlocal
+from unicodedata import normalize
 
 import datetime
 
@@ -34,6 +35,8 @@ STATUS_INDEX = 35
 PRIORNAME_INDEX = 36
 CREATED_DATE = 15
 REPORTER_ID_INDEX = 21
+SUMMARY_INDEX = 25
+DESCRIPTION_INDEX = 30
 
 
 def get_csv_file_name(project_id):
@@ -90,6 +93,17 @@ def consolidate_information(project_id, release_regex):
         created_date = issue[CREATED_DATE]
         reported_by = issue[REPORTER_ID_INDEX]
 
+        summary = None
+        if issue[SUMMARY_INDEX]:
+            summary = normalize('NFKD', issue[SUMMARY_INDEX]).encode('ASCII', 'ignore')
+            summary = summary[0:30000]
+
+        description = None
+        if issue[DESCRIPTION_INDEX]:
+            description = normalize('NFKD', issue[DESCRIPTION_INDEX]).encode('ASCII', 'ignore')
+            description = description[0:30000]
+
+
         created_date_parsed = datetime.datetime.fromtimestamp(created_date / 1000, tz=tzlocal())
 
         jira_metrics = jiracounter.get_JIRA_metrics(
@@ -124,7 +138,7 @@ def consolidate_information(project_id, release_regex):
             jira_metrics.priority_changed_to,
             git_metrics.repository,
             git_metrics.total_deletions, git_metrics.total_insertions, git_metrics.avg_files,
-            jira_metrics.change_log_len, jira_metrics.reopen_len)
+            jira_metrics.change_log_len, jira_metrics.reopen_len, summary, description)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -149,7 +163,7 @@ def write_consolidated_file(project_id, records, issues_dataframe=None):
                      "Reported By", "JIRA Resolved By", "JIRA Resolved Date", "JIRA Resolution Time", "Git Committer",
                      "Git Commit Date", "Avg Lines", "Git Resolution Time", "Comments in JIRA", "Priority Changer",
                      "Original Priority", "New Priority", "Git Repository", "Total Deletions", "Total Insertions",
-                     "Avg Files", "Change Log Size", "Number of Reopens"]
+                     "Avg Files", "Change Log Size", "Number of Reopens", "Summary", "Description"]
 
     issues = 0
     if issues_dataframe is None and records:
@@ -347,12 +361,12 @@ def main():
                 project_key = config['project_key']
 
                 consolidate_information(project_id, release_regex)
-                commit_analysis(repositories, project_id, project_key)
+                # commit_analysis(repositories, project_id, project_key)
 
                 project_dataframe = get_project_dataframe(project_id)
                 training_dataframe = get_validated_dataframe(project_dataframe)
 
-                execute_analysis(project_key, project_id, project_dataframe, training_dataframe)
+                # execute_analysis(project_key, project_id, project_dataframe, training_dataframe)
                 all_dataframes.append(project_dataframe)
 
         projects = str(len(all_dataframes))
@@ -362,12 +376,11 @@ def main():
         all_id = ""
         write_consolidated_file(all_id, records=None, issues_dataframe=merged_dataframe)
 
-        execute_analysis(all_key, all_id, merged_dataframe, merged_training_dataframe)
+        # execute_analysis(all_key, all_id, merged_dataframe, merged_training_dataframe)
         print "Finished consolidating ", projects, " project information"
 
     finally:
         winsound.Beep(2500, 1000)
-        pass
 
 
 if __name__ == "__main__":
