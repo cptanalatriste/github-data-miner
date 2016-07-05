@@ -71,7 +71,7 @@ def get_fix_distance(jira_distance, github_distance):
     return None
 
 
-def consolidate_information(project_id, release_regex):
+def consolidate_information(project_id, release_regex, project_key=None):
     """
     Generetes a consolidated CSV report for the fix distance calculation.
     :param project_id: Project identifier in JIRA
@@ -103,7 +103,6 @@ def consolidate_information(project_id, release_regex):
             description = normalize('NFKD', issue[DESCRIPTION_INDEX]).encode('ASCII', 'ignore')
             description = description[0:30000]
 
-
         created_date_parsed = datetime.datetime.fromtimestamp(created_date / 1000, tz=tzlocal())
 
         jira_metrics = jiracounter.get_JIRA_metrics(
@@ -130,7 +129,7 @@ def consolidate_information(project_id, release_regex):
             git_metrics.distance, fix_distance, jira_metrics.distance_releases, git_metrics.distance_releases,
             fix_distance_releases,
             created_date_parsed, jira_metrics.closest_release_name, git_metrics.closest_tag, reported_by,
-            jira_metrics.resolved_by,
+            jira_metrics.resolved_by, jira_metrics.start_date_parsed,
             jira_metrics.resolution_date_parsed, jira_metrics.resolution_time, git_metrics.commiter,
             git_metrics.commit_date,
             git_metrics.avg_lines, git_metrics.resolution_time,
@@ -138,7 +137,7 @@ def consolidate_information(project_id, release_regex):
             jira_metrics.priority_changed_to,
             git_metrics.repository,
             git_metrics.total_deletions, git_metrics.total_insertions, git_metrics.avg_files,
-            jira_metrics.change_log_len, jira_metrics.reopen_len, summary, description)
+            jira_metrics.change_log_len, jira_metrics.reopen_len, summary, description, project_key)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -160,10 +159,11 @@ def write_consolidated_file(project_id, records, issues_dataframe=None):
                      "Commits with Tags", "Earliest Tag", "JIRA/GitHub Distance", "JIRA Distance", "GitHub distance",
                      "Fix distance", "JIRA Distance in Releases", "GitHub Distance in Releases",
                      "Fix Distance in Releases", "Creation Date", "Closest Release JIRA", "Closest Tag Git",
-                     "Reported By", "JIRA Resolved By", "JIRA Resolved Date", "JIRA Resolution Time", "Git Committer",
+                     "Reported By", "JIRA Resolved By", "JIRA Resolver Start", "JIRA Resolved Date",
+                     "JIRA Resolution Time", "Git Committer",
                      "Git Commit Date", "Avg Lines", "Git Resolution Time", "Comments in JIRA", "Priority Changer",
                      "Original Priority", "New Priority", "Git Repository", "Total Deletions", "Total Insertions",
-                     "Avg Files", "Change Log Size", "Number of Reopens", "Summary", "Description"]
+                     "Avg Files", "Change Log Size", "Number of Reopens", "Summary", "Description", "Project Key"]
 
     issues = 0
     if issues_dataframe is None and records:
@@ -295,18 +295,21 @@ def priority_analysis(project_key, project_id, issues_dataframe, distance_column
                               "_All_Priorities_" + project_id + ".png")
 
 
-def get_project_dataframe(project_id):
+def get_project_dataframe(project_id, filter=True):
     """
     Returns a dataframe with the issues valid for analysis.
     :param project_id: JIRA's project identifier.
+    :param filter: If true, considers only resolved issues with commits in Git and Resolved by a different engineer.
     :return: Dataframe
     """
     issues_dataframe = pd.read_csv(get_csv_file_name(project_id))
+    resolved_issues = issues_dataframe
 
-    resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Resolved'])]
-    resolved_issues = resolved_issues[resolved_issues['Resolution'].isin(jiracounter.VALID_RESOLUTION_VALUES)]
-    resolved_issues = resolved_issues[resolved_issues['Commits'] > 0]
-    resolved_issues = resolved_issues[resolved_issues['Reported By'] != resolved_issues['JIRA Resolved By']]
+    if filter:
+        resolved_issues = issues_dataframe[issues_dataframe['Status'].isin(['Closed', 'Resolved'])]
+        resolved_issues = resolved_issues[resolved_issues['Resolution'].isin(jiracounter.VALID_RESOLUTION_VALUES)]
+        resolved_issues = resolved_issues[resolved_issues['Commits'] > 0]
+        resolved_issues = resolved_issues[resolved_issues['Reported By'] != resolved_issues['JIRA Resolved By']]
 
     return resolved_issues
 
@@ -360,10 +363,12 @@ def main():
                 repositories = config['repositories']
                 project_key = config['project_key']
 
-                consolidate_information(project_id, release_regex)
+                consolidate_information(project_id, release_regex, project_key)
                 # commit_analysis(repositories, project_id, project_key)
 
-                project_dataframe = get_project_dataframe(project_id)
+                # project_dataframe = get_project_dataframe(project_id)
+                project_dataframe = get_project_dataframe(project_id, filter=False)
+
                 training_dataframe = get_validated_dataframe(project_dataframe)
 
                 # execute_analysis(project_key, project_id, project_dataframe, training_dataframe)
@@ -373,7 +378,7 @@ def main():
         merged_dataframe = pd.concat(all_dataframes)
         merged_training_dataframe = get_validated_dataframe(merged_dataframe)
         all_key = projects + "PROJECTS"
-        all_id = ""
+        all_id = "UNFILTERED"
         write_consolidated_file(all_id, records=None, issues_dataframe=merged_dataframe)
 
         # execute_analysis(all_key, all_id, merged_dataframe, merged_training_dataframe)
