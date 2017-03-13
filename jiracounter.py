@@ -16,6 +16,7 @@ VERSION_DATE_INDEX = 3
 AUTHOR_INDEX = 1
 CREATED_INDEX = 0
 
+TO_INDEX = 7
 TO_STRING_INDEX = 8
 FROM_STRING_INDEX = 6
 CHANGE_FIELD_INDEX = 3
@@ -168,6 +169,54 @@ def get_first_log(log_items, author_id):
     return None
 
 
+def get_assignment_log(log_items, author_id):
+    """
+    Gets the log item where a user assignment happens on a bug report.
+    :param log_items: List of change log items.
+    :param author_id: Person that is responsible of the bug report.
+    :return: First assignment where this happened.
+    """
+    sorted_log_items = sorted(log_items, reverse=False, key=lambda item: item[CREATED_INDEX])
+
+    for log_item in sorted_log_items:
+        if log_item[CHANGE_FIELD_INDEX] == "assignee" and log_item[TO_INDEX] == author_id:
+            return log_item
+
+    return None
+
+
+def get_inprogress_log(log_items, author_id):
+    """
+    Gets the log item where a JIRA user started working on a Bug Report
+    :param log_items: List of change log items.
+    :param author_id: Person who made the In Progress Change.
+    :return: First occurrence of this event.
+    """
+
+    sorted_log_items = sorted(log_items, reverse=False, key=lambda item: item[CREATED_INDEX])
+
+    for log_item in sorted_log_items:
+        if log_item[AUTHOR_INDEX] == author_id and log_item[TO_STRING_INDEX] == "In Progress":
+            return log_item
+
+    return None
+
+
+def get_log_create_date(log_item):
+    """
+    Returns the creation date of a log item as a String.
+    :param log_item: Log item as a tuple.
+    :return: The creation date. Parsed.
+    """
+
+    if log_item:
+        timestamp = log_item[CREATED_INDEX]
+        date_parsed = datetime.datetime.fromtimestamp(timestamp / 1000, tz=tzlocal())
+        return date_parsed
+
+    return None
+
+
 def get_JIRA_metrics(issue_id, project_id, created_date):
     """
     Gathers issue inflation information from the JIRA database.
@@ -182,6 +231,7 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
                              ['earliest_affected', 'latest_affected_name', 'earliest_fix_name', 'latest_fix_name',
                               'distance',
                               'distance_releases', 'closest_release_name', 'resolved_by', 'start_date_parsed',
+                              'assignment_date_parsed', 'progress_date_parsed',
                               'resolution_date_parsed',
                               'resolution_time',
                               'issue_comments_len', 'priority_changed_by', 'priority_changed_to',
@@ -213,15 +263,22 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
     if resolution_log:
         resolved_by = resolution_log[AUTHOR_INDEX]
         resol_timestamp = resolution_log[CREATED_INDEX]
-        resolution_date_parsed = datetime.datetime.fromtimestamp(resol_timestamp / 1000, tz=tzlocal())
+        resolution_date_parsed = get_log_create_date(resolution_log)
         resolution_time = (resol_timestamp - created_date) / (1000 * 60 * 60)  # In hours
 
     start_date_parsed = None
+    assignment_date_parsed = None
+    progress_date_parsed = None
+
     if resolved_by:
         first_resolver_log = get_first_log(log_items, resolved_by)
-        if first_resolver_log:
-            resolver_start_timestamp = first_resolver_log[CREATED_INDEX]
-            start_date_parsed = datetime.datetime.fromtimestamp(resolver_start_timestamp / 1000, tz=tzlocal())
+        start_date_parsed = get_log_create_date(first_resolver_log)
+
+        assignment_log = get_assignment_log(log_items, resolved_by)
+        assignment_date_parsed = get_log_create_date(assignment_log)
+
+        progress_log = get_inprogress_log(log_items, resolved_by)
+        progress_date_parsed = get_log_create_date(progress_log)
 
     priority_changed_by = None
     priority_changed_to = None
@@ -242,6 +299,8 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
                                distance=jira_distance,
                                distance_releases=jira_distance_releases, closest_release_name=closest_release_name,
                                resolved_by=resolved_by, start_date_parsed=start_date_parsed,
+                               assignment_date_parsed=assignment_date_parsed,
+                               progress_date_parsed=progress_date_parsed,
                                resolution_date_parsed=resolution_date_parsed,
                                resolution_time=resolution_time, issue_comments_len=len(issue_comments),
                                priority_changed_by=priority_changed_by, priority_changed_to=priority_changed_to,
