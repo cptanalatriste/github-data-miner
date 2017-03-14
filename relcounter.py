@@ -138,7 +138,8 @@ def consolidate_information(project_id, release_regex, project_key=None):
             jira_metrics.priority_changed_to,
             git_metrics.repository,
             git_metrics.total_deletions, git_metrics.total_insertions, git_metrics.avg_files,
-            jira_metrics.change_log_len, jira_metrics.reopen_len, summary, description, project_key)
+            jira_metrics.change_log_len, jira_metrics.reopen_len, summary, description, project_key,
+            jira_metrics.priority_change_date)
         print "Analizing Issue " + key
         records.append(csv_record)
 
@@ -165,9 +166,9 @@ def write_consolidated_file(project_id, records, issues_dataframe=None):
                      "JIRA Resolution Time", "Git Committer",
                      "Git Commit Date", "Avg Lines", "Git Resolution Time", "Comments in JIRA", "Priority Changer",
                      "Original Priority", "New Priority", "Git Repository", "Total Deletions", "Total Insertions",
-                     "Avg Files", "Change Log Size", "Number of Reopens", "Summary", "Description", "Project Key"]
+                     "Avg Files", "Change Log Size", "Number of Reopens", "Summary", "Description", "Project Key",
+                     "Priority Change Date"]
 
-    issues = 0
     if issues_dataframe is None and records:
         issues_dataframe = DataFrame(records, columns=column_header)
 

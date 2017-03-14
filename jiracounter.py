@@ -131,7 +131,6 @@ def get_last_priority_log(log_items):
     :param log_items: List of change log items.
     :return: Last priority change log item.
     """
-    log = None
 
     sorted_log_items = sorted(log_items, reverse=True, key=lambda item: item[CREATED_INDEX])
 
@@ -235,7 +234,7 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
                               'resolution_date_parsed',
                               'resolution_time',
                               'issue_comments_len', 'priority_changed_by', 'priority_changed_to',
-                              'priority_change_from', 'change_log_len', 'reopen_len'])
+                              'priority_change_from', 'change_log_len', 'reopen_len', 'priority_change_date'])
 
     fix_versions = jdata.get_fix_versions(issue_id)
     earliest_fix, latest_fix = get_first_last_version(fix_versions)
@@ -283,12 +282,14 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
     priority_changed_by = None
     priority_changed_to = None
     priority_change_from = None
+    priority_change_date = None
 
     priority_log = get_last_priority_log(log_items)
     if priority_log:
         priority_changed_by = priority_log[AUTHOR_INDEX]
         priority_changed_to = priority_log[TO_STRING_INDEX]
         priority_change_from = priority_log[FROM_STRING_INDEX]
+        priority_change_date = get_log_create_date(priority_log)
 
     reopen_logs = get_reopen_logs(log_items)
 
@@ -305,6 +306,6 @@ def get_JIRA_metrics(issue_id, project_id, created_date):
                                resolution_time=resolution_time, issue_comments_len=len(issue_comments),
                                priority_changed_by=priority_changed_by, priority_changed_to=priority_changed_to,
                                priority_change_from=priority_change_from, change_log_len=len(log_items),
-                               reopen_len=len(reopen_logs))
+                               reopen_len=len(reopen_logs), priority_change_date=priority_change_date)
 
     return jira_metrics

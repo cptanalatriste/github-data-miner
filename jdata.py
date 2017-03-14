@@ -4,7 +4,7 @@ Module for accessing JIRA database information.
 
 import dbutils
 
-DATABASE_FILE = "C:\Users\Carlos G. Gavidia\OneDrive\phd2\jira_db\issue_repository.db"
+DATABASE_FILE = "D:\OneDrive\phd2\jira_db\issue_repository.db"
 
 
 def get_issue_by_key(key):
